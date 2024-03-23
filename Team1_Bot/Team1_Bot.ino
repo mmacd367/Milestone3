@@ -5,6 +5,7 @@
  Author: Mia Macdonald-Walden
 
  Rev 1  - Initial Version March 20 2024
+ Rev 2  - Changed drive system path
 
 */
 
@@ -58,7 +59,8 @@ struct Encoder {
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
 #define SMART_LED_COUNT     1 
-#define IR_DETECTOR         14                                                 // GPIO14 pin 17 (J14) IR detector input
+#define TRIG_PIN            6
+#define ECHO_PIN            7
 #define PI                  3.1415926535897932384626433832795
 
 // Constants
@@ -68,21 +70,23 @@ const int cMinPWM = 150;                                                       /
 const int cMaxPWM = pow(2, cPWMRes) - 1;                                       // PWM value for maximum speed
 const int cCountsRev = 1096;                                                   // encoder pulses per motor revolution
 const int cReturnTime = 100000;                                                // time for drive system, before returning to base
-const int cTurnRadius = 7;                                                     // bot's turning radius
+const long cTurnRadius = 6.2;                                                     // bot's turning radius
 const int cRevDistance = 13.195;                                               // distance traversed by the bot for 1 wheel revolution
 
 // adjustment variables and drive speed
-const int cLeftAdjust = 5;                                                     // Amount to slow down left motor relative to right
+const int cLeftAdjust = 3;                                                     // Amount to slow down left motor relative to right
 const int cRightAdjust = 0;                                                    // Amount to slow down right motor relative to left
 
 // Variables
 boolean motorsEnabled = true;                                                  // motors enabled flag
 boolean timeUpReturn = false;                                                  // drive timer elapsed flag
 boolean turnDir = false;                                                       // index to indicate what the turn direction should be (left is false, right is true);
+boolean wait = true;
 unsigned char leftDriveSpeed;                                                  // motor drive speed (0-255)
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
+unsigned int homeIndex = 0;
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
 unsigned long timerCountReturn = 0;                                            // return time counter
 unsigned long displayTime;                                                     // heartbeat LED update timer
@@ -90,7 +94,10 @@ unsigned long previousMicros;                                                  /
 unsigned long currentMicros;                                                   // current microsecond count
 long xFromBase;
 long yFromBase;
+long totalYFromBase;
 unsigned int turnNo = 0;
+float us_Duration;
+float cm_Distance;
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -121,16 +128,17 @@ unsigned int  modeIndicator[6] = {                                             /
 Motion Bot = Motion();                                                         // Instance of Motion for motor control
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
-IR Scan = IR(); 
  
 void setup() {
    // Set up motors and encoders
-   Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B); // set up motors as Drive 1
+   Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B);  // set up motors as Drive 1
 
-   LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning ); // set up left encoder
-   RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning ); // set up right encoder
- 
-   Scan.Begin(IR_DETECTOR, 1200);                                              //set up IR Detection @ 1200 baud
+   LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning );      // set up left encoder
+   RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning );  // set up right encoder
+
+   // Set up ultrasonic sensor
+   pinMode(TRIG_PIN, OUTPUT);
+   pinMode(ECHO_PIN, INPUT);
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
@@ -208,9 +216,10 @@ void loop() {
         break;
 
       case 1: // drive 
-        if(timeUpReturn){                                                      
+        if(timeUpReturn && driveIndex != 2 && driveIndex != 5){                                                      
           LeftEncoder.clearEncoder();
           RightEncoder.clearEncoder();
+          Serial.println("timer is up, returning home");
           robotModeIndex = 3;
         }
 
@@ -231,7 +240,8 @@ void loop() {
               Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
 
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (37.5 / cRevDistance)){ 
+              xFromBase = RightEncoder.lRawEncoderCount;
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (375 / cRevDistance)){ 
                 LeftEncoder.clearEncoder();
                 RightEncoder.clearEncoder();
                 Serial.println("moved x into sweep area");
@@ -255,7 +265,7 @@ void loop() {
               Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
 
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (12.5 / cRevDistance)){ 
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (125 / cRevDistance)){ 
                 LeftEncoder.clearEncoder();
                 RightEncoder.clearEncoder();
                 Serial.println("moved y into sweep area");
@@ -265,9 +275,19 @@ void loop() {
 
             case 4: // sweep forwards
               Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
-
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (25 / cRevDistance)){
+
+              if(!turnDir){
+                yFromBase = RightEncoder.lRawEncoderCount;
+                totalYFromBase = RightEncoder.lRawEncoderCount;
+              }
+              
+              if(turnDir){
+                yFromBase = totalYFromBase - RightEncoder.lRawEncoderCount;
+              }
+
+
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (250 / cRevDistance)){
                 LeftEncoder.clearEncoder();
                 RightEncoder.clearEncoder();
                 Serial.println("sweeped forward");
@@ -276,6 +296,8 @@ void loop() {
               break;
 
             case 5: // turn 90 degrees
+              leftDriveSpeed = 200 - cLeftAdjust;
+              rightDriveSpeed = 200 - cRightAdjust;
               if (turnDir){
                 Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
 
@@ -327,7 +349,8 @@ void loop() {
               Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
 
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (5 / cRevDistance)){
+              xFromBase -= RightEncoder.lRawEncoderCount;
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (10 / cRevDistance)){
                 LeftEncoder.clearEncoder();
                 RightEncoder.clearEncoder();
                 Serial.println("moved forward for turn");
@@ -346,15 +369,106 @@ void loop() {
         break;
 
       case 3: // navigate to home base
-        robotModeIndex = 0;
-        
+        switch(homeIndex){
+
+          case 0: // go y back to base
+            if(turnDir){
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+
+              if(RightEncoder.lRawEncoderCount >= yFromBase){
+                RightEncoder.clearEncoder();
+                LeftEncoder.clearEncoder();
+                Serial.println("moved forward in y to base");
+                homeIndex = 1;
+              }
+            }
+
+            if(!turnDir){
+              Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+
+              if(RightEncoder.lRawEncoderCount <= -1 * yFromBase){
+                RightEncoder.clearEncoder();
+                LeftEncoder.clearEncoder();
+                Serial.println("moved backward in y to base");
+                homeIndex = 1;
+              }
+            }
+            break;
+
+          case 1: //turn backward 90 degrees (direction depends on case 0)
+            if(turnDir){
+              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+
+              if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * cTurnRadius / cRevDistance)){
+                RightEncoder.clearEncoder();
+                LeftEncoder.clearEncoder();
+                Serial.println("turned left back to base");
+                homeIndex = 2;
+              }
+            }
+
+            if(!turnDir){
+              Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (0.5 * PI * cTurnRadius / cRevDistance)){
+                RightEncoder.clearEncoder();
+                LeftEncoder.clearEncoder();
+                Serial.println("turned right back to base");
+                homeIndex = 2;
+              }
+            }
+            break;
+
+          case 2: // reverse back to base
+            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+            RightEncoder.getEncoderRawCount();
+            
+            if(RightEncoder.lRawEncoderCount <= -1 * xFromBase + (cCountsRev * 10 / cRevDistance)){
+              Bot.Stop("D1");
+              Serial.println("reverse in x back to base");
+              homeIndex = 3;
+            }
+            break; 
+
+          case 3: // reverse precisely onto container  
+            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+            Serial.println("precise reversing started");
+            
+            if(wait){
+              digitalWrite(TRIG_PIN, HIGH);
+              Serial.println("send out pulse");
+              wait = false;
+              break;
+            }
+
+            if(!wait){
+              digitalWrite(TRIG_PIN, LOW);
+              wait = true;
+              us_Duration = pulseIn(ECHO_PIN, HIGH);
+              cm_Distance = 0.017 * us_Duration;
+              Serial.printf("read pulse, %f away from container\n", cm_Distance);
+              
+              if(cm_Distance <= 5){
+                Bot.Stop("D1");
+                Serial.println("At container");
+                robotModeIndex = 4;
+              }
+              break;
+            }
+        } 
         break;
 
       case 4: // open back hatch
         //code for hatch
+        Serial.println("Dumping contents");
         robotModeIndex = 0;
         break;
     }
+
     // Update brightness of heartbeat display on SmartLED
     displayTime++;                                                            // count milliseconds
     if (displayTime > cDisplayUpdate) {                                       // when display update period has passed
