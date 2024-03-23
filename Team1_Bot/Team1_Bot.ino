@@ -31,9 +31,7 @@
 //  release the program button 
 //
 
-//Debugging Keywords
-//
-
+// import relevant packages
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <MSE2202_Lib.h>
@@ -58,10 +56,10 @@ struct Encoder {
 #define MODE_BUTTON         0                                                  // GPIO0  pin 27 for Push Button 1
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
-#define SMART_LED_COUNT     1 
-#define TRIG_PIN            6
-#define ECHO_PIN            7
-#define PI                  3.1415926535897932384626433832795
+#define SMART_LED_COUNT     1                                                  // number of smart led's 
+#define TRIG_PIN            6                                                  // GIPO pin for the ultrasonic sensor (trig)
+#define ECHO_PIN            7                                                  // GIPO pin for the ultrasonic sensor (echo)
+#define PI                  3.1415926535897932384626433832795                  // const. value for PI
 
 // Constants
 const int cDisplayUpdate = 100;                                                // update interval for Smart LED in milliseconds
@@ -70,34 +68,34 @@ const int cMinPWM = 150;                                                       /
 const int cMaxPWM = pow(2, cPWMRes) - 1;                                       // PWM value for maximum speed
 const int cCountsRev = 1096;                                                   // encoder pulses per motor revolution
 const int cReturnTime = 100000;                                                // time for drive system, before returning to base
-const long cTurnRadius = 6.2;                                                     // bot's turning radius
+const long cTurnRadius = 5.2;                                                  // bot's turning radius
 const int cRevDistance = 13.195;                                               // distance traversed by the bot for 1 wheel revolution
 
 // adjustment variables and drive speed
-const int cLeftAdjust = 3;                                                     // Amount to slow down left motor relative to right
-const int cRightAdjust = 0;                                                    // Amount to slow down right motor relative to left
+const int cLeftAdjust = 1;                                                     // Amount to slow down left motor relative to right
+const int cRightAdjust = 0;                                                   // Amount to slow down right motor relative to left
 
 // Variables
 boolean motorsEnabled = true;                                                  // motors enabled flag
 boolean timeUpReturn = false;                                                  // drive timer elapsed flag
 boolean turnDir = false;                                                       // index to indicate what the turn direction should be (left is false, right is true);
-boolean wait = true;
+boolean wait = true;                                                           // flag to indicate whether the ultrasonic sensor must wait
 unsigned char leftDriveSpeed;                                                  // motor drive speed (0-255)
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
-unsigned int homeIndex = 0;
+unsigned int homeIndex = 0;                                                    // state index for return drive
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
 unsigned long timerCountReturn = 0;                                            // return time counter
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
-long xFromBase;
-long yFromBase;
-long totalYFromBase;
-unsigned int turnNo = 0;
-float us_Duration;
-float cm_Distance;
+long xFromBase;                                                                // current x distance from the base
+long yFromBase;                                                                // current y distance from the base
+long totalYFromBase;                                                           // total y distance from the base
+unsigned int turnNo = 0;                                                       // value to indicate how many turns in a direction have been made
+float us_Duration;                                                             // duration of the ultrasonic signal
+float cm_Distance;                                                             // conversion from the ultrasonic signal to distance in cm
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -216,129 +214,138 @@ void loop() {
         break;
 
       case 1: // drive 
-        if(timeUpReturn && driveIndex != 2 && driveIndex != 5){                                                      
-          LeftEncoder.clearEncoder();
+        if(timeUpReturn && driveIndex != 2 && driveIndex != 5){                 // if the return timer has gone off, and the bot isn't turning                                               
+          LeftEncoder.clearEncoder();                                           // clear the encoder counts
           RightEncoder.clearEncoder();
           Serial.println("timer is up, returning home");
-          robotModeIndex = 3;
+          robotModeIndex = 3;                                                   // change modes to the return mode
         }
 
-        leftDriveSpeed = 255 - cLeftAdjust;
-        rightDriveSpeed = 255 - cRightAdjust;
+        leftDriveSpeed = 225 - cLeftAdjust;                                     // set the drive speed
+        rightDriveSpeed = 225 - cRightAdjust;                                   
 
         if(motorsEnabled){
 
-          switch(driveIndex){
+          switch(driveIndex){                                                   // drive mode control
             case 0: // temporary stop
-              Bot.Stop("D1");
-              LeftEncoder.clearEncoder();
-              RightEncoder.clearEncoder();
-              robotModeIndex = 2;
+              Bot.Stop("D1");                                                   // stop the motors
+              LeftEncoder.clearEncoder();                                       // clear the encoders
+              RightEncoder.clearEncoder();  
+              robotModeIndex = 2;                                               // switch to the pick up mode
               break;
             
             case 1: // drive forward to the sweep area
-              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);               // set the motors to move forward
 
-              RightEncoder.getEncoderRawCount();
-              xFromBase = RightEncoder.lRawEncoderCount;
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (375 / cRevDistance)){ 
-                LeftEncoder.clearEncoder();
+              RightEncoder.getEncoderRawCount();                                // get the right encoder value
+              xFromBase = RightEncoder.lRawEncoderCount;                        // store the encoder value in a variable (used to return later)
+
+              // if the encoder has reached the equivalent count to go the appropriate distance
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (37.5 / cRevDistance)){  
+                LeftEncoder.clearEncoder();                                     // clear encoder counts
                 RightEncoder.clearEncoder();
                 Serial.println("moved x into sweep area");
-                driveIndex = 2;
+                driveIndex = 2;                                                 // switch to next part in drive sequence (turn to face sweep area)
               }
               break;
 
             case 2: // turn to face sweep area
-              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);                  // set the motors to turn left
 
-              RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * cTurnRadius / cRevDistance)){
-                LeftEncoder.clearEncoder();
+              RightEncoder.getEncoderRawCount();                                // retrieve the value of the right encoder
+
+              // if the encoder has reached the equivalent count to go the appropriate distance
+              if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * 5.2 / cRevDistance)){
+                LeftEncoder.clearEncoder();                                     // clear the encoder counts
                 RightEncoder.clearEncoder();
-                Serial.println("turned into sweep area");
-                driveIndex = 3;
+                Serial.println("turned into sweep area");                       
+                driveIndex = 3;                                                 // change to the next part of the drive sequence (forward)
               }
               break;
 
             case 3: // drive forward to the sweep area
-              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);               // set the motors to move forwards 
 
-              RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (125 / cRevDistance)){ 
-                LeftEncoder.clearEncoder();
+              RightEncoder.getEncoderRawCount();                                // get the value of the right encoder 
+
+              // if the encoder has reached the equivalent count to go the appropriate distance
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (12.5 / cRevDistance)){ 
+                LeftEncoder.clearEncoder();                                     // clear the encoder counts
                 RightEncoder.clearEncoder();
                 Serial.println("moved y into sweep area");
-                driveIndex = 4;
+                driveIndex = 4;                                                 // change to the sweeping drive sequence
               }
               break;
 
             case 4: // sweep forwards
-              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
-              RightEncoder.getEncoderRawCount();
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);               // set the motors to drive forward
+              RightEncoder.getEncoderRawCount();                                // get the raw value of the right encoder
 
-              if(!turnDir){
-                yFromBase = RightEncoder.lRawEncoderCount;
-                totalYFromBase = RightEncoder.lRawEncoderCount;
+              if(!turnDir){                                                     // if the turn direction flag is false (next turn is left)
+                yFromBase = RightEncoder.lRawEncoderCount;                      // store the current distance from the base
+                totalYFromBase = RightEncoder.lRawEncoderCount;                 // set the total distance from the base
               }
               
-              if(turnDir){
-                yFromBase = totalYFromBase - RightEncoder.lRawEncoderCount;
+              if(turnDir){                                                      // if the turn direction flag is true (next turn is right)
+                yFromBase = totalYFromBase - RightEncoder.lRawEncoderCount;     // calculate the distance from the base from the encoder count and total y distance
               }
 
-
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (250 / cRevDistance)){
-                LeftEncoder.clearEncoder();
+              // if the encoder has reached the equivalent count to go the appropriate distance
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (25 / cRevDistance)){
+                LeftEncoder.clearEncoder();                                     // clear encoder counts
                 RightEncoder.clearEncoder();
-                Serial.println("sweeped forward");
-                driveIndex = 0;
+                Serial.println("sweeped forward");                                
+                driveIndex = 0;                                                 // change to the stopped drive state
               }
               break;
 
-            case 5: // turn 90 degrees
-              leftDriveSpeed = 200 - cLeftAdjust;
-              rightDriveSpeed = 200 - cRightAdjust;
-              if (turnDir){
-                Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
+            case 5: // turn
+              if (turnDir){                                                     // if the turn direction flag is true (next turn is right)
+                Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);               // turn right
 
-                RightEncoder.getEncoderRawCount();
-                if(RightEncoder.lRawEncoderCount >= cCountsRev * (0.5 * PI * cTurnRadius / cRevDistance)){
-                  LeftEncoder.clearEncoder();
+                RightEncoder.getEncoderRawCount();                              // get the raw right encoder value 
+
+                // if the encoder has reached the equivalent count to go the appropriate distance
+                if(RightEncoder.lRawEncoderCount >= cCountsRev * (0.5 * PI * 5.8 / cRevDistance)){
+                  LeftEncoder.clearEncoder();                                   // clear the encoder values
                   RightEncoder.clearEncoder();
                   
-                  if(turnNo == 0) {
-                    driveIndex = 6;
-                    turnNo = 1;
+                  if(turnNo == 0) {                                             // if the number of turns is 0
+                    driveIndex = 6;                                             // switch to drive index 6 (short straightaway)
+                    turnNo = 1;                                                 // change the turn number to 1
                     Serial.println("right turn 1");
                   }
                   
-                  else if(turnNo == 1) {
-                    driveIndex = 4;
-                    turnNo = 0;
-                    turnDir = false;
+                  else if(turnNo == 1) {                                        // if the number of turns is 1 (1 turn has already occured)
+                    driveIndex = 4;                                             // switch to drive index 4 (long sweep)
+                    turnNo = 0;                                                 // reset the turn number to 0
+                    turnDir = false;                                            // switch the turn flag to a left turn
                     Serial.println("right turn 2");
                   }
                 }
                 break;
               }
 
-              if(!turnDir) {
-                Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
+              if(!turnDir) {                                                    // if the turn direction flag is false (left turn)
+                Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);                // turn left
 
-                RightEncoder.getEncoderRawCount();
-                if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * cTurnRadius / cRevDistance)){
-                  LeftEncoder.clearEncoder();
+                RightEncoder.getEncoderRawCount();                              // retrieve the right encoder value 
+
+                // if the encoder has reached the equivalent count to go the appropriate distance
+                if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * 5.8 / cRevDistance)){
+                  LeftEncoder.clearEncoder();                                   // clear the encoder values
                   RightEncoder.clearEncoder();
-                  if(turnNo == 0){
-                    driveIndex = 6;
-                    turnNo = 1;
+
+                  if(turnNo == 0){                                              // if the number of turns is 0
+                    driveIndex = 6;                                             // switch to drive index 6 (short straightaway)
+                    turnNo = 1;                                                 // change the turn number to 1
                     Serial.println("left turn 1");
                   }
 
-                  else if(turnNo == 1){
-                    driveIndex = 4;
-                    turnNo = 0;
-                    turnDir = true;
+                  else if(turnNo == 1){                                         // if the number of turns is 1 (1 turn has already occured)
+                    driveIndex = 4;                                             // switch to drive index 4 (long sweep)
+                    turnNo = 0;                                                 // reset the turn number to 0
+                    turnDir = true;                                             // switch the turn flag to a left turn
                     Serial.println("left turn 2");
                   }
                 }
@@ -346,15 +353,17 @@ void loop() {
               } 
 
             case 6: // move forward slightly (during turn)
-              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);                // move the bot forward
 
-              RightEncoder.getEncoderRawCount();
-              xFromBase -= RightEncoder.lRawEncoderCount;
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * (10 / cRevDistance)){
-                LeftEncoder.clearEncoder();
+              RightEncoder.getEncoderRawCount();                                 // get the encoder value for the right encoder
+              xFromBase -= RightEncoder.lRawEncoderCount;                        // calculate the distance in encoder value from the base
+
+              // if the encoder has reached the equivalent count to go the appropriate distance
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (20 / cRevDistance)){
+                LeftEncoder.clearEncoder();                                      // clear the encoders 
                 RightEncoder.clearEncoder();
                 Serial.println("moved forward for turn");
-                driveIndex = 5;
+                driveIndex = 5;                                                  // switch back to turn for the second time
               }
               break;  
           }
@@ -362,100 +371,108 @@ void loop() {
         break;
 
       case 2: // operate pick up
-        // code for pick up
+        // code for pick up (not yet completed)
         Serial.println("pick up");
-        driveIndex = 5;
-        robotModeIndex = 1;
+        driveIndex = 5;                                                          // switch to turn after the sweep
+        robotModeIndex = 1;                                                      // switch back to the drive mode
         break;
 
       case 3: // navigate to home base
-        switch(homeIndex){
+        switch(homeIndex){                                                       // control structure for driving back to base
 
           case 0: // go y back to base
-            if(turnDir){
-              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
-              RightEncoder.getEncoderRawCount();
+            if(turnDir){                                                         // if the next turn is a right turn (turnDir is true)
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);                // move forward back to the base
+              RightEncoder.getEncoderRawCount();                                 // get the right encoder value
 
+              // if the encoder has reached the equivalent count to go the appropriate distance
               if(RightEncoder.lRawEncoderCount >= yFromBase){
-                RightEncoder.clearEncoder();
+                RightEncoder.clearEncoder();                                     // clear encoder counts
                 LeftEncoder.clearEncoder();
-                Serial.println("moved forward in y to base");
-                homeIndex = 1;
+                Serial.println("moved forward in y to base");                    
+                homeIndex = 1;                                                   // change to next state (turn toward base)
               }
             }
 
-            if(!turnDir){
-              Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
-              RightEncoder.getEncoderRawCount();
+            if(!turnDir){                                                        // if the next turn is a left turn (turnDir is false)
+              Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);                // move backward back to the base (due to the drive orientation)
+              RightEncoder.getEncoderRawCount();                                 // get the right encoder value
 
+              // if the encoder has reached the equivalent count to go the appropriate distance
               if(RightEncoder.lRawEncoderCount <= -1 * yFromBase){
-                RightEncoder.clearEncoder();
+                RightEncoder.clearEncoder();                                     // clear the encoders
                 LeftEncoder.clearEncoder();
                 Serial.println("moved backward in y to base");
-                homeIndex = 1;
+                homeIndex = 1;                                                   // change to next state (turn toward base)
               }
             }
             break;
 
           case 1: //turn backward 90 degrees (direction depends on case 0)
-            if(turnDir){
-              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
-              RightEncoder.getEncoderRawCount();
+            if(turnDir){                                                         // if the next turn will be a right turn
+              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);                   // turn left 
+              RightEncoder.getEncoderRawCount();                                 // get the right encoder count
 
+              // if the encoder has reached the equivalent count to go the appropriate distance
               if(RightEncoder.lRawEncoderCount <= cCountsRev * -1 * (0.5 * PI * cTurnRadius / cRevDistance)){
-                RightEncoder.clearEncoder();
+                RightEncoder.clearEncoder();                                     // clear the encoder values
                 LeftEncoder.clearEncoder();
                 Serial.println("turned left back to base");
-                homeIndex = 2;
+                homeIndex = 2;                                                   // switch to move backward toward base
               }
             }
 
-            if(!turnDir){
-              Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
+            if(!turnDir){                                                        // if the next turn will be a left turn
+              Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);                  // turn right (difference is due to orientation)
               RightEncoder.getEncoderRawCount();
 
+              // if the encoder has reached the equivalent count to go the appropriate distance
               if(RightEncoder.lRawEncoderCount >= cCountsRev * (0.5 * PI * cTurnRadius / cRevDistance)){
-                RightEncoder.clearEncoder();
+                RightEncoder.clearEncoder();                                     // clear encoder counts
                 LeftEncoder.clearEncoder();
-                Serial.println("turned right back to base");
-                homeIndex = 2;
+                Serial.println("turned right back to base");  
+                homeIndex = 2;                                                   // switch to move backward toward base
               }
             }
             break;
 
           case 2: // reverse back to base
-            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
-            RightEncoder.getEncoderRawCount();
+            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);                  // reverse back toward the base
+            RightEncoder.getEncoderRawCount();                                   // retrieve the right encoder count
             
+            // if the encoder has reached the equivalent count to go the appropriate distance
             if(RightEncoder.lRawEncoderCount <= -1 * xFromBase + (cCountsRev * 10 / cRevDistance)){
-              Bot.Stop("D1");
+              Bot.Stop("D1");                                                    // stop moving backward
               Serial.println("reverse in x back to base");
-              homeIndex = 3;
+              homeIndex = 3;                                                     // move to next state (using untrasonic sensor)
             }
             break; 
 
           case 3: // reverse precisely onto container  
-            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+            leftDriveSpeed = 200 - cLeftAdjust;                                  // slow down the drive speed
+            rightDriveSpeed = 200 - cRightAdjust;
+
+            Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);                  // reverse back onto the container
             Serial.println("precise reversing started");
             
-            if(wait){
-              digitalWrite(TRIG_PIN, HIGH);
+            if(wait){                                                            // if the flag to wait is true (this is to ensure a 1ms delay in the pulse sending and reading)
+              digitalWrite(TRIG_PIN, HIGH);                                      // send out the ultrasonic signal
               Serial.println("send out pulse");
-              wait = false;
+              wait = false;                                                      // set the wait flag to false (already waited)
               break;
             }
 
-            if(!wait){
-              digitalWrite(TRIG_PIN, LOW);
+            if(!wait){                                                           // if the flag is false (waiting is completed, pulse has been sent out)
+              digitalWrite(TRIG_PIN, LOW);                                       // stop sending ultrasonic pulse
               wait = true;
-              us_Duration = pulseIn(ECHO_PIN, HIGH);
-              cm_Distance = 0.017 * us_Duration;
+              us_Duration = pulseIn(ECHO_PIN, HIGH);                             // read the duration of the ultrasonic pulse
+              cm_Distance = 0.017 * us_Duration;                                 // convert the ultrasonic pulse duration to distance in cm
               Serial.printf("read pulse, %f away from container\n", cm_Distance);
               
-              if(cm_Distance <= 5){
-                Bot.Stop("D1");
+              if(cm_Distance <= 3){                                              // if the ultrasonic sensor senses the bot to be within 3cm of the container
+                Bot.Stop("D1");                                                  // stop reversing
                 Serial.println("At container");
-                robotModeIndex = 4;
+                robotModeIndex = 4;                                              // switch the modes to empty the gem containment
               }
               break;
             }
@@ -463,7 +480,7 @@ void loop() {
         break;
 
       case 4: // open back hatch
-        //code for hatch
+        //code for hatch (not yet complete)
         Serial.println("Dumping contents");
         robotModeIndex = 0;
         break;
@@ -485,7 +502,7 @@ void loop() {
 
 // sorting system operation
 void Sorting() {
-  // code to operate sorting and sorting servos
+  // code to operate sorting and sorting servos (not yet completed)
 }
 
 // Set colour of Smart LED depending on robot mode (and update brightness)
