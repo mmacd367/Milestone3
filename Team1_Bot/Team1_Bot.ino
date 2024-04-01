@@ -291,44 +291,12 @@ void loop() {
         break;
 
       case 1: // drive 
-        Bot.Stop("D1");
         Serial.println("drive state");
         robotModeIndex = 2;
         break;
 
       case 2: // operate pick up
-        Bot.Stop("D1");
-        switch(pickupIndex){
-
-          case 0: //close the scoop onto gems
-              pickupIndex = 1;
-            break;
-          
-          case 1:
-            positionServo3 += speedFactorServo3;
-            positionServo4 -= speedFactorServo4;
-            if(positionServo3 >= endAngleServo3 || positionServo4 <= endAngleServo4){
-              pickupIndex = 2;
-            }
-            Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
-            Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
-            
-            break;
-
-          case 2:
-            positionServo3 -= speedFactorServo3;
-            positionServo4 += speedFactorServo4;
-            if(positionServo3 <= startAngleServo3 || positionServo4 >= startAngleServo4){
-              pickupIndex = 3;
-            }
-            Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
-            Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
-            
-            break;
-            robotModeIndex = 0;
-            break;
-        }
-
+        
         break;
 
       case 3: // navigate to home base
@@ -356,6 +324,39 @@ void loop() {
       Indicator();                                                            // update LED
     }
     Sorting();
+  }
+}
+
+void pickup(){
+  switch(pickupIndex){
+    case 0: //close the scoop onto gems
+      pickupIndex = 1;
+      break;
+          
+    case 1:
+      positionServo3 += speedFactorServo3;
+      positionServo4 -= speedFactorServo4;
+      if(positionServo3 >= endAngleServo3 || positionServo4 <= endAngleServo4){
+        pickupIndex = 2;
+      }
+      Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
+      Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
+      break;
+
+    case 2:
+      positionServo3 -= speedFactorServo3;
+      positionServo4 += speedFactorServo4;
+      if(positionServo3 <= startAngleServo3 || positionServo4 >= startAngleServo4){
+        pickupIndex = 3;
+      }
+      Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
+      Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));  
+      break;
+    
+    case 3://open the servo arms
+      robotModeIndex = 0;
+      break;
+
   }
 }
 
