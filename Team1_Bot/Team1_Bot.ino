@@ -37,6 +37,7 @@
 #include <SPI.h>
 #include <Adafruit_TCS34725.h>
 #include <MSE2202_Lib.h>
+#include <ESP32Servo.h>
 
 // Encoder structure
 struct Encoder {
@@ -137,14 +138,15 @@ float positionServo5 = startAngleServo5;
 
 float speedFactorServo1 = 1.0;                                                 // Speed factor for servo 1
 float speedFactorServo2 = 1.0;                                                 // Speed factor for servo 2
-float speedFactorServo3 = 1.0;
-float speedFactorServo4 = 1.0;
+float speedFactorServo3 = 0.1
+float speedFactorServo4 = 0.1;
 float speedFactorServo5 = 1.0;
 
 enum State {
   SERVO1_FORWARD,
   SERVO1_REVERSE,
-  SERVO2_FORWARD,
+  SERVO2_FORWARD,3
+
   SERVO2_REVERSE,
   SAMPLE_AGAIN,
 };
@@ -154,18 +156,18 @@ State currentState = SERVO1_FORWARD;
 uint16_t r, g, b, c; 
 
 // limits for rgb
-int rgoodmin = 1;
-int ggoodmin = 1;
-int bgoodmin = 1;
-int cgoodmin = 1;
+int rgoodmin = 14;
+int ggoodmin = 18;
+int bgoodmin = 11;
+int cgoodmin = 46;
 
-int rgoodmax = 1;
-int ggoodmax = 1;
-int bgoodmax = 1;
-int cgoodmax = 1;
+int rgoodmax = 17;
+int ggoodmax = 24;
+int bgoodmax = 16;
+int cgoodmax = 60;
 
-int justclearmin = 1;
-int justclearmax = 1;
+int justclearmin = 62;
+int justclearmax = 78;
 
 //TCS434725 Set up
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_4X);
@@ -299,29 +301,30 @@ void loop() {
         switch(pickupIndex){
 
           case 0: //close the scoop onto gems
-            positionServo5 += speedFactorServo5;
-
-            if(positionServo5 <= endAngleServo5){
-              Bot.ToPosition("S5", degreesToDutyCycle(positionServo5));
-            }
-            if(positionServo5 > endAngleServo5){
               pickupIndex = 1;
-            }
             break;
           
           case 1:
-            positionArmServo += speedFactorArmServo;
-
-            if(positionArmServo <= endAngleArmServo){
-              Bot.ToPosition("S3", degreesToDutyCycle(positionArmServo));
-              Bot.ToPosition("S4", degreesToDutyCycle(positionArmServo));
-            }
-            if(positionArmServo > endAngleArmServo){
+            positionServo3 += speedFactorServo3;
+            positionServo4 -= speedFactorServo4;
+            if(positionServo3 >= endAngleServo3 || positionServo4 <= endAngleServo4){
               pickupIndex = 2;
             }
+            Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
+            Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
+            
             break;
 
           case 2:
+            positionServo3 -= speedFactorServo3;
+            positionServo4 += speedFactorServo4;
+            if(positionServo3 <= startAngleServo3 || positionServo4 >= startAngleServo4){
+              pickupIndex = 3;
+            }
+            Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
+            Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
+            
+            break;
             robotModeIndex = 0;
             break;
         }
@@ -370,7 +373,7 @@ void Sorting() {
       sortMode = 1; // gem is bad
       sample = true; // the rgb values were sampled
     }
-    if((justclearmin <= r <= justclearmax) && !((rgoodmin <= r <= rgoodmax) && (ggoodmin <= r <= ggoodmax) && (bgoodmin <= r <= bgoodmax))){
+    if((justclearmin <= r <= justclearmax) && !((rgoodmin <= r <= rgoodmax) && !(ggoodmin <= r <= ggoodmax) && !(bgoodmin <= r <= bgoodmax))){
       sortMode = 2; // gem is non existent
       sample = false; // the rgb values were not sampled
     }
