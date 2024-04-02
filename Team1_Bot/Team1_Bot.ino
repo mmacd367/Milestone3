@@ -347,12 +347,12 @@ void loop() {
         break;
 
       case 4: // open back hatch
-        positionServo6 += (endAngleServo6 - startAngleServo6) / (1000.0 / interval) / speedFactorServo6;
-        if (positionServo6 >= endAngleServo6){
-          positionServo6 = endAngleServo6;
-          robotModeIndex = 0;
+        positionServo6 += (endAngleServo6 - startAngleServo6) / (1000.0 / interval) / speedFactorServo6; // update the speed position of the servo gradually
+        if (positionServo6 >= endAngleServo6){                                                           // if the servo has reached its end position
+          positionServo6 = endAngleServo6;                                                               // set the servo to its end position (in case of overshooting position)
+          robotModeIndex = 0;                                                                            // stop bot operations
         }
-        servo4.write(positionServo6);
+        servo4.write(positionServo6);                                                                    // update the servo's position 
         break;
     }
     // Update brightness of heartbeat display on SmartLED
@@ -371,8 +371,11 @@ void loop() {
 }
 
 void pickup(){
+  // only perform servo movement every 20ms due to max speed of servos
   if (currentMicros >= interval) {
-    switch (pcurrentState) {
+    switch (pcurrentState) {                                                  // flag to indicate the current movement mode of the servos
+      
+      // close the scoop servos onto the gems in front
       case SERVO5_CLOSE:
         positionServo5 += (endAngleServo5 - startAngleServo5)/ (1000.0 / interval) / speedFactorServo5;
         if(positionServo5 >= endAngleServo5){
@@ -383,6 +386,7 @@ void pickup(){
         servo5.write(positionServo5);
         break;
         
+      // move the arm servos up to dump the gems in the scoop into the chassis
       case SERVO34_FORWARD:
         positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
         positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
@@ -394,7 +398,8 @@ void pickup(){
         servo3.write(positionServo3);
         servo4.write(positionServo4);
         break;
-        
+      
+      // reset the arm servos to put arm back on the ground
       case SERVO34_REVERSE:
         positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
         positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
@@ -407,6 +412,7 @@ void pickup(){
         servo4.write(positionServo4);
         break;
       
+      // re-open the arm servos to collect more gems
       case SERVO5_OPEN:
         positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
         if(positionServo5 <= startAngleServo5){
