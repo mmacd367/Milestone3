@@ -129,6 +129,8 @@ int startAngleServo4 = 79;                                                     /
 int endAngleServo4 = 180; 
 int startAngleServo5 = 0;
 int endAngleServo5 = 180;
+int startAngleServo6 = 0;
+int endAngleServo6 = 180;
 
 float positionServo1 = startAngleServo1;                                       // Current position of servo 1
 float positionServo2 = startAngleServo2;                                       // Current position of servo 2
@@ -140,7 +142,8 @@ float speedFactorServo1 = 1.0;                                                 /
 float speedFactorServo2 = 1.0;                                                 // Speed factor for servo 2
 float speedFactorServo3 = 0.1
 float speedFactorServo4 = 0.1;
-float speedFactorServo5 = 1.0;
+float speedFactorServo5 = 0.1;
+float speedFactorServo6 = 0.1
 
 enum State {
   SERVO1_FORWARD,
@@ -296,20 +299,22 @@ void loop() {
         break;
 
       case 2: // operate pick up
-        
+        pickup();
         break;
 
       case 3: // navigate to home base
-        //Bot.Stop("D1");
         Serial.println("navigate to home");
-
         robotModeIndex = 4;
         break;
 
       case 4: // open back hatch
-        //Bot.Stop("D1");
-        Serial.println("open back hatch");
-        robotModeIndex = 0;
+        positionServo6 += speedFactorServo6;
+        if(positionServo6 >= endAngleServo6){
+          positionServo6 = endAngleServo6;
+          robotModeIndex = 0;
+        }
+        Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
+      
         break;
     }
     // Update brightness of heartbeat display on SmartLED
@@ -330,13 +335,21 @@ void loop() {
 void pickup(){
   switch(pickupIndex){
     case 0: //close the scoop onto gems
-      pickupIndex = 1;
+      positionServo5 += speedFactorServo5;
+      if(positionServo5 >= endAngleServo5){
+        positionServo5 = endAngleServo5
+        pickupIndex = 1;
+      }
+      Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
+     
       break;
           
     case 1:
       positionServo3 += speedFactorServo3;
       positionServo4 -= speedFactorServo4;
       if(positionServo3 >= endAngleServo3 || positionServo4 <= endAngleServo4){
+        positionServo3 = endAngleServo3;
+        positionServo4 = endAngleServo4;
         pickupIndex = 2;
       }
       Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
@@ -347,6 +360,8 @@ void pickup(){
       positionServo3 -= speedFactorServo3;
       positionServo4 += speedFactorServo4;
       if(positionServo3 <= startAngleServo3 || positionServo4 >= startAngleServo4){
+        positionServo3 = startAngleServo3;
+        positionServo4 = startAngleServo4;
         pickupIndex = 3;
       }
       Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
@@ -354,7 +369,12 @@ void pickup(){
       break;
     
     case 3://open the servo arms
-      robotModeIndex = 0;
+      positionServo5 -= speedFactorServo5;
+      if(positionServo5 <= startAngleServo5){
+        positionServo5 = startAngleServo5;
+        robotModeIndex = 3;
+      }
+      Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
       break;
 
   }
