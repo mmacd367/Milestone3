@@ -83,7 +83,7 @@ const int cRevDistance = 26.075;                                               /
 const int cSDA = 47;                                                           // GPIO pin for I2C data
 const int cSCL = 48;                                                           // GPIO pin for I2C clock
 const int cTCSLED = 14;                                                        // GPIO pin for LED on TCS34725
-
+const int cLEDSwitch = 46;                                                     // DIP switch S1-2 controls LED on TCS32725  
 
 // adjustment variables and drive speed
 const int cLeftAdjust = 1;                                                     // Amount to slow down left motor relative to right
@@ -95,6 +95,7 @@ boolean timeUpReturn = false;                                                  /
 boolean turnDir = false;                                                       // index to indicate what the turn direction should be (left is false, right is true);
 boolean wait = true;                                                           // flag to indicate whether the ultrasonic sensor must wait
 boolean sample = false;                                                        // flag to indicate whether the colour sensor has sampled 
+boolean tcsFlag;
 
 unsigned char leftDriveSpeed;                                                  // motor drive speed (0-255)
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
@@ -109,7 +110,7 @@ unsigned int turnNo = 0;                                                       /
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
-unsigned long interval = 2000;                                                                                                                                                                                                    // Time interval between servo position updates (in milliseconds)
+unsigned long interval = 20000;                                                                                                                                                                                                    // Time interval between servo position updates (in milliseconds)
 
 long xFromBase;                                                                // current x distance from the base
 long yFromBase;                                                                // current y distance from the base
@@ -163,7 +164,7 @@ enum pickupState {
   SERVO5_OPEN,
 };
 
-sortState pcurrentState = SERVO5_CLOSE;
+pickupState pcurrentState = SERVO5_CLOSE;
 
 // the current rgbc parameters
 uint16_t r, g, b, c; 
@@ -179,8 +180,14 @@ int ggoodmax = 24;
 int bgoodmax = 16;
 int cgoodmax = 60;
 
-int justclearmin = 62;
-int justclearmax = 78;
+int rnothingmin = 18;
+int rnothingmax = 23;
+int gnothingmin = 20;
+int gnothingmax = 24;
+int bnothingmin = 17;
+int bnothingmax = 21;
+int cnothingmin = 62;
+int cnothingmax = 68;
 
 //TCS434725 Set up
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_2_4MS, TCS34725_GAIN_4X);
@@ -230,17 +237,32 @@ void setup() {
    // Set up servos 
    Bot.servoBegin("S1", SERVO_1);
    Bot.servoBegin("S2", SERVO_2);
-   Servo3.attatch(SERVO_3);
-   Servo4.attatch(SERVO_4);
-   Servo5.attatch(SERVO_5);
-   Servo6.attatch(SERVO_6);
+   servo3.attach(SERVO_3);
+   servo4.attach(SERVO_4);
+   servo5.attach(SERVO_5);
+   servo6.attach(SERVO_6);
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
    SmartLEDs.clear();                                                          // clear pixel
    SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,0));                          // set pixel colors to 'off'
    SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+   
+   Wire.setPins(cSDA, cSCL);                                                   // set I2C pins for TCS34725
+   pinMode(cTCSLED, OUTPUT);                                                   // configure GPIO to control LED on TCS34725
+   pinMode(cLEDSwitch, INPUT_PULLUP);                                          // configure GPIO to set state of TCS34725 LED 
 
+  // Connect to TCS34725 colour sensor
+  if (tcs.begin()) {
+    Serial.printf("Found TCS34725 colour sensor\n");
+    tcsFlag = true;
+  } 
+  else {
+    Serial.printf("No TCS34725 found ... check your connections\n");
+    tcsFlag = false;
+  }
+
+  digitalWrite(cTCSLED, !digitalRead(cLEDSwitch));    // turn on onboard LED if switch state is low (on position)
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
    modePBDebounce = 0;                                                         // reset debounce timer count
@@ -404,18 +426,24 @@ void Sorting() {
 
     tcs.getRawData(&r, &g, &b, &c);                   // get raw RGBC values
 
-    if((rgoodmin <= r <= rgoodmax) && (ggoodmin <= r <= ggoodmax) && (bgoodmin <= r <= bgoodmax) && (cgoodmin <= r <= cgoodmax)){ // good gem conditions
-      sortMode = 0;                                   // gem is good
-      sample = true;                                  // the rgb values were sampled
+    if((rgoodmin <= r && r <= rgoodmax) && (ggoodmin <= g && g <= ggoodmax) && (bgoodmin <= b && b <= bgoodmax) && (cgoodmin <= c && c <= cgoodmax)){
+      // Gem is good
+      sortMode = 0; // Assuming sortMode = 0 means 'good gem'
+      sample = true;
     }
-    else if(!((rgoodmin <= r <= rgoodmax) && (ggoodmin <= r <= ggoodmax) && (bgoodmin <= r <= bgoodmax)) && !(justclearmin <= r <= justclearmax)){ //bad gem conditions
-      sortMode = 1;                                   // gem is bad
-      sample = true;                                  // the rgb values were sampled
+
+    else if(!(rgoodmin <= r || r <= rgoodmax) || !(ggoodmin <= g || g <= ggoodmax) || !(bgoodmin <= b || b <= bgoodmax) || !(cnothingmin <= c || c <= cnothingmax)){
+      // Gem is bad
+      sortMode = 1; // Assuming sortMode = 1 means 'bad gem'
+      sample = true;
     }
-    if((justclearmin <= r <= justclearmax) && !((rgoodmin <= r <= rgoodmax) && !(ggoodmin <= r <= ggoodmax) && !(bgoodmin <= r <= bgoodmax))){
-      sortMode = 2;                                   // gem is non existent
-      sample = false;                                 // the rgb values were not sampled
+
+    else if((rnothingmin <= r && r <= rnothingmax) && (gnothingmin <= g && g <= gnothingmax) && (bnothingmin <= b && b <= bnothingmax) && (cnothingmin <= c && c <= cnothingmax)){
+      // Gem does not exist or condition for 'no gem'
+      sortMode = 2; // Assuming sortMode = 2 means 'no gem or condition not met'
+      sample = false;
     }
+
   }
 
   if(currentMicros >= interval){                      // if sufficient time has elapsed (enough for the servos to move)
@@ -474,7 +502,7 @@ void Sorting() {
     // if the gem is bad
     else if (sortMode == 1) {
       
-      switch (currentState) {                         // flag to indicate the servos' movement
+      switch (ccurrentState) {                         // flag to indicate the servos' movement
 
         // move the sorting door
         case SERVO2_FORWARD:
