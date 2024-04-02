@@ -58,10 +58,10 @@ struct Encoder {
 
 #define SERVO_1              1                                                 // Servo for flow gate in sorting system
 #define SERVO_2              2                                                 // Servo for sorting door in sorting system
-#define SERVO_3             35                                                 // Servo for left pickup arm 
-#define SERVO_4             36                                                 // Servo for right pickup arm
-#define SERVO_5             37                                                 // Servo for scoop
-#define SERVO_6             42                                                 // Servo for release hatch 
+#define SERVO_3             40                                                 // Servo for left pickup arm 
+#define SERVO_4             41                                                 // Servo for right pickup arm
+#define SERVO_5             42                                                 // Servo for scoop
+#define SERVO_6             43                                                 // Servo for release hatch 
 
 #define MODE_BUTTON         0                                                  // GPIO0  pin 27 for Push Button 1
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
@@ -123,9 +123,9 @@ int startAngleServo1 = 70;                                                     /
 int endAngleServo1 = 180;                                                      // Final angle for servo 1
 int startAngleServo2 = 79;                                                     // Initial angle for servo 2
 int endAngleServo2 = 180;                                                      // Final angle for servo 2
-int startAngleServo3 = 79;                                                     // Initial angle for servo 2
-int endAngleServo3 = 180; 
-int startAngleServo4 = 79;                                                     // Initial angle for servo 2
+int startAngleServo3 = 180;                                                     // Initial angle for servo 2
+int endAngleServo3 = 0; 
+int startAngleServo4 = 0;                                                     // Initial angle for servo 2
 int endAngleServo4 = 180; 
 int startAngleServo5 = 0;
 int endAngleServo5 = 180;
@@ -134,26 +134,36 @@ int endAngleServo6 = 180;
 
 float positionServo1 = startAngleServo1;                                       // Current position of servo 1
 float positionServo2 = startAngleServo2;                                       // Current position of servo 2
-float positionServo3 = startAngle3Servo;
-float positionServo4 = startAngle4Servo;
-float positionServo5 = startAngleServo5;
+float positionServo3 = startAngleServo3;                                       // Current position of servo 3
+float positionServo4 = startAngleServo4;                                       // Current position of servo 4
+float positionServo5 = startAngleServo5;                                       // Current position of servo 5
+float positionServo6 = startAngleServo6;                                       // Current position of servo 6
 
 float speedFactorServo1 = 1.0;                                                 // Speed factor for servo 1
 float speedFactorServo2 = 1.0;                                                 // Speed factor for servo 2
-float speedFactorServo3 = 0.1
-float speedFactorServo4 = 0.1;
-float speedFactorServo5 = 0.1;
-float speedFactorServo6 = 0.1
+float speedFactorServo3 = 0.1;                                                 // Speed factor for servo 3
+float speedFactorServo4 = 0.1;                                                 // Speed factor for servo 4
+float speedFactorServo5 = 0.1;                                                 // Speed factor for servo 5
+float speedFactorServo6 = 0.1;                                                 // Speed factor for servo 6
 
-enum State {
+// state for the sorting system's switch statement
+enum colourState {
   SERVO1_FORWARD,
   SERVO1_REVERSE,
-  SERVO2_FORWARD,3
-
+  SERVO2_FORWARD,
   SERVO2_REVERSE,
   SAMPLE_AGAIN,
 };
-State currentState = SERVO1_FORWARD;
+colourState ccurrentState = SERVO1_FORWARD;
+
+enum pickupState {
+  SERVO5_CLOSE,
+  SERVO34_FORWARD,
+  SERVO34_REVERSE,
+  SERVO5_OPEN,
+};
+
+sortState pcurrentState = SERVO5_CLOSE;
 
 // the current rgbc parameters
 uint16_t r, g, b, c; 
@@ -205,6 +215,12 @@ Motion Bot = Motion();                                                         /
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
  
+// servo objects
+Servo servo3;
+Servo servo4;
+Servo servo5;
+Servo servo6;
+
 void setup() {
    // Set up motors and encoders
    Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B); // set up motors as Drive 1
@@ -214,10 +230,10 @@ void setup() {
    // Set up servos 
    Bot.servoBegin("S1", SERVO_1);
    Bot.servoBegin("S2", SERVO_2);
-   Bot.servoBegin("S3", SERVO_3);
-   Bot.servoBegin("S4", SERVO_4);
-   Bot.servoBegin("S5", SERVO_5);
-   Bot.servoBegin("S6", SERVO_6);
+   Servo3.attatch(SERVO_3);
+   Servo4.attatch(SERVO_4);
+   Servo5.attatch(SERVO_5);
+   Servo6.attatch(SERVO_6);
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
@@ -300,6 +316,7 @@ void loop() {
 
       case 2: // operate pick up
         pickup();
+         robotModeIndex = 3;
         break;
 
       case 3: // navigate to home base
@@ -308,13 +325,12 @@ void loop() {
         break;
 
       case 4: // open back hatch
-        positionServo6 += speedFactorServo6;
-        if(positionServo6 >= endAngleServo6){
+        positionServo6 += (endAngleServo6 - startAngleServo6) / (1000.0 / interval) / speedFactorServo6;
+        if (positionServo6 >= endAngleServo6){
           positionServo6 = endAngleServo6;
           robotModeIndex = 0;
         }
-        Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
-      
+        servo4.write(positionServo6);
         break;
     }
     // Update brightness of heartbeat display on SmartLED
@@ -333,165 +349,187 @@ void loop() {
 }
 
 void pickup(){
-  switch(pickupIndex){
-    case 0: //close the scoop onto gems
-      positionServo5 += speedFactorServo5;
-      if(positionServo5 >= endAngleServo5){
-        positionServo5 = endAngleServo5
-        pickupIndex = 1;
-      }
-      Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
-     
-      break;
-          
-    case 1:
-      positionServo3 += speedFactorServo3;
-      positionServo4 -= speedFactorServo4;
-      if(positionServo3 >= endAngleServo3 || positionServo4 <= endAngleServo4){
-        positionServo3 = endAngleServo3;
-        positionServo4 = endAngleServo4;
-        pickupIndex = 2;
-      }
-      Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
-      Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));
-      break;
-
-    case 2:
-      positionServo3 -= speedFactorServo3;
-      positionServo4 += speedFactorServo4;
-      if(positionServo3 <= startAngleServo3 || positionServo4 >= startAngleServo4){
-        positionServo3 = startAngleServo3;
-        positionServo4 = startAngleServo4;
-        pickupIndex = 3;
-      }
-      Bot.ToPosition("S3", degreesToDutyCycle(positionServo3));
-      Bot.ToPosition("S4", degreesToDutyCycle(positionServo4));  
-      break;
-    
-    case 3://open the servo arms
-      positionServo5 -= speedFactorServo5;
-      if(positionServo5 <= startAngleServo5){
-        positionServo5 = startAngleServo5;
-        robotModeIndex = 3;
-      }
-      Bot.ToPosition("S5"), degreesToDutyCycle(positionServo5);
-      break;
-
-  }
+  if (currentMicros >= interval) {
+    switch (pcurrentState) {
+      case SERVO5_CLOSE:
+        positionServo5 += (endAngleServo5 - startAngleServo5)/ (1000.0 / interval) / speedFactorServo5;
+        if(positionServo5 >= endAngleServo5){
+          Serial.println("test1");
+          positionServo5 = endAngleServo5;
+          pcurrentState = SERVO34_FORWARD;
+        }
+        servo5.write(positionServo5);
+        break;
+        
+      case SERVO34_FORWARD:
+        positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+        positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+        if ((positionServo3 <= endAngleServo3) && (positionServo4 >= endAngleServo4)){
+          positionServo3 = endAngleServo3;
+          positionServo4 = endAngleServo4;
+          pcurrentState = SERVO34_REVERSE;
+        }
+        servo3.write(positionServo3);
+        servo4.write(positionServo4);
+        break;
+        
+      case SERVO34_REVERSE:
+        positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+        positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+        if ((positionServo3 >= startAngleServo3) && (positionServo4 <= startAngleServo4)) {
+          positionServo3 = startAngleServo3;
+          positionServo4 = startAngleServo4;
+          pcurrentState = SERVO5_OPEN;
+        }
+        servo3.write(positionServo3);
+        servo4.write(positionServo4);
+        break;
+      
+      case SERVO5_OPEN:
+        positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
+        if(positionServo5 <= startAngleServo5){
+          Serial.println("test2");
+          positionServo5 = startAngleServo5;
+          pcurrentState = SERVO5_CLOSE;
+        }
+        servo5.write(positionServo5);
+        break;
+    }
+  }  
 }
 
 // sorting system operation
 void Sorting() {
-  if(!sample){
+  if(!sample){                                        // if a gem isn't currently being sorted (a gem hasn't been sampled yet)
 
     tcs.getRawData(&r, &g, &b, &c);                   // get raw RGBC values
 
     if((rgoodmin <= r <= rgoodmax) && (ggoodmin <= r <= ggoodmax) && (bgoodmin <= r <= bgoodmax) && (cgoodmin <= r <= cgoodmax)){ // good gem conditions
-      sortMode = 0; // gem is good
-      sample = true; // the rgb values were sampled
+      sortMode = 0;                                   // gem is good
+      sample = true;                                  // the rgb values were sampled
     }
     else if(!((rgoodmin <= r <= rgoodmax) && (ggoodmin <= r <= ggoodmax) && (bgoodmin <= r <= bgoodmax)) && !(justclearmin <= r <= justclearmax)){ //bad gem conditions
-      sortMode = 1; // gem is bad
-      sample = true; // the rgb values were sampled
+      sortMode = 1;                                   // gem is bad
+      sample = true;                                  // the rgb values were sampled
     }
     if((justclearmin <= r <= justclearmax) && !((rgoodmin <= r <= rgoodmax) && !(ggoodmin <= r <= ggoodmax) && !(bgoodmin <= r <= bgoodmax))){
-      sortMode = 2; // gem is non existent
-      sample = false; // the rgb values were not sampled
+      sortMode = 2;                                   // gem is non existent
+      sample = false;                                 // the rgb values were not sampled
     }
   }
 
-  if (sortMode == 0) {
-    switch (currentState) {
-      case SERVO1_FORWARD:
-        positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
-        if (positionServo1 >= endAngleServo1) {
-          positionServo1 = endAngleServo1;
-          currentState = SERVO2_FORWARD;
-        }
-        Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
-        break;
+  if(currentMicros >= interval){                      // if sufficient time has elapsed (enough for the servos to move)
 
-      case SERVO2_FORWARD:
-        positionServo2 += 1;
-          if (positionServo2 >= endAngleServo2) {
-          positionServo2 = endAngleServo2;
-          currentState = SERVO2_REVERSE;
-        }
-        Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
-        break;
+    //if the gem is good (green)
+    if (sortMode == 0) {    
+      switch (ccurrentState) {                         // flag to indicate the servos' movement
         
-      case SERVO2_REVERSE:
-        positionServo2 -= 1;
-        if (positionServo2 <= startAngleServo2) {
-          positionServo2 = startAngleServo2;
-          currentState = SERVO1_REVERSE;
-        }
-        Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
-        break;
-
-      case SERVO1_REVERSE:
-        positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
-        if (positionServo1 <= startAngleServo1) {
-          positionServo1 = startAngleServo1;
-          currentState = SERVO1_FORWARD;
-        }
-        Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
-        break;
-
-      case SAMPLE_AGAIN:
-        sample = false;
-        break;
-      }
-    }
-
-    else if (sortMode == 1) {
-      switch (currentState) {
-        case SERVO2_FORWARD:
-          positionServo2 += 1;
-          if (positionServo2 >= endAngleServo2) {
-            positionServo2 = endAngleServo2;
-            currentState = SERVO2_REVERSE;
-          }
-          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
-          break;
-        
-       case SERVO2_REVERSE:
-          positionServo2 -= 1;
-          if (positionServo2 <= startAngleServo2) {
-            positionServo2 = startAngleServo2;
-            currentState = SERVO1_FORWARD;
-          }
-          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
-          break;
-
-        case SERVO1_FORWARD:
+        // first move the sorting door to the good gem position
+        case SERVO1_FORWARD:                          
           positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
-          if (positionServo1 >= endAngleServo1) {
+          if (positionServo1 >= endAngleServo1) {  
             positionServo1 = endAngleServo1;
-            currentState = SERVO2_REVERSE;
+            ccurrentState = SERVO2_FORWARD;
           }
           Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
           break;
-          
+        
+        // open the flow control gate to let the gem through
+        case SERVO2_FORWARD:
+          positionServo2 += 1;
+            if (positionServo2 >= endAngleServo2) {
+            positionServo2 = endAngleServo2;
+            ccurrentState = SERVO2_REVERSE;
+          }
+          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
+          break;
+        
+        // close the flow control gate to prevent more gems from coming through
+        case SERVO2_REVERSE:
+          positionServo2 -= 1;
+          if (positionServo2 <= startAngleServo2) {
+            positionServo2 = startAngleServo2;
+            ccurrentState = SERVO1_REVERSE;
+          }
+          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
+          break;
+
+        // reset the position of the flow contr
         case SERVO1_REVERSE:
           positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
           if (positionServo1 <= startAngleServo1) {
             positionServo1 = startAngleServo1;
-            currentState = SERVO1_FORWARD;
+            ccurrentState = SERVO1_FORWARD;
           }
           Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
           break;
 
+        // reset the sample flag to test next gem colour
+        case SAMPLE_AGAIN:
+          sample = false;
+          break;
+        }
+    }
+
+    // if the gem is bad
+    else if (sortMode == 1) {
+      
+      switch (currentState) {                         // flag to indicate the servos' movement
+
+        // move the sorting door
+        case SERVO2_FORWARD:
+          positionServo2 += 1;
+          if (positionServo2 >= endAngleServo2) {
+            positionServo2 = endAngleServo2;
+            ccurrentState = SERVO2_REVERSE;
+          }
+          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
+          break;
+        
+        // close the sorting door for bad gems
+        case SERVO2_REVERSE:
+          positionServo2 -= 1;
+          if (positionServo2 <= startAngleServo2) {
+            positionServo2 = startAngleServo2;
+            ccurrentState = SERVO1_FORWARD;
+          }
+          Bot.ToPosition("S2", degreesToDutyCycle(positionServo2));
+          break;
+
+        // open the flow control door to let the gem out 
+        case SERVO1_FORWARD:
+          positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
+          if (positionServo1 >= endAngleServo1) {
+            positionServo1 = endAngleServo1;
+            ccurrentState = SERVO2_REVERSE;
+          }
+          Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
+          break;
+        
+        // close the flow control door to prevent extra gems through
+        case SERVO1_REVERSE:
+          positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
+          if (positionServo1 <= startAngleServo1) {
+            positionServo1 = startAngleServo1;
+            ccurrentState = SERVO1_FORWARD;
+          }
+          Bot.ToPosition("S1", degreesToDutyCycle(positionServo1));
+          break;
+
+        // reset the sample flag to test next gem colour
         case SAMPLE_AGAIN:
           sample = false;
           break;
 
       }
     }
+
+    // if there is no gem sensed, reset the sampling flag
     else if(sortMode == 2) {
       Serial.printf("Do nothing for sorting\n");  // if there is no good or bad gem, sort nothing 
       sample = false;
     }
+  }  
 }
 
 // function to return a dutyCyle that should be written using pwm to the servos
