@@ -35,6 +35,9 @@
 
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_TCS34725.h>
 #include <MSE2202_Lib.h>
 
 
@@ -45,7 +48,7 @@ struct Encoder {
    long pos;                                                                   // current encoder position
 };
 
-// Port pin constants
+// Port pin constants (motors and encoders)
 #define LEFT_MOTOR_A        35                                                 // GPIO35 pin 28 (J35) Motor 1 A
 #define LEFT_MOTOR_B        36                                                 // GPIO36 pin 29 (J36) Motor 1 B
 #define RIGHT_MOTOR_A       37                                                 // GPIO37 pin 30 (J37) Motor 2 A
@@ -54,6 +57,19 @@ struct Encoder {
 #define ENCODER_LEFT_B      16                                                 // left encoder B signal is connected to pin 8 GPIO16 (J16)
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
+
+// Port pin constants (servo motors)
+#define SERVO1                                                                 // 
+#define SERVO2                                                                 //
+#define SERVO3              42                                                 // Right pickup arm servo
+#define SERVO4              44                                                 // Left pickup arm servo
+#define SERVO5              43                                                 // Scoop servo
+#define SERVO6                                                                 //
+#define PWMCHAN_SERVO3 0
+#define PWMCHAN_SERVO4 1
+#define PWMCHAN_SERVO5 2
+
+// Port pin constants (other)
 #define MODE_BUTTON         0                                                  // GPIO0  pin 27 for Push Button 1
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
@@ -73,13 +89,32 @@ const int cRevDistance = 25.761;                                               /
 const int cLeftAdjust = 0;                                                     // Amount to slow down left motor relative to right
 const int cRightAdjust = 0;                                                    // Amount to slow down right motor relative to left
 
-// Variables
+// Variables (operation)
 boolean motorsEnabled = true;                                                  // motors enabled flag
 boolean timeUpReturn = false;                                                  // drive timer elapsed flag
 unsigned char leftDriveSpeed;                                                  // motor drive speed (0-255)
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
+int Pickupflag = 1;                                                            // flag to switch between cases
+
+// Variables (servos)
+int startAngleServo3 = 0;                                                      // Initial angle for servo 3
+int endAngleServo3 = 90;                                                       // Final angle for servo 3
+int startAngleServo4 = 0;                                                      // Initial angle for servo 4
+int endAngleServo4 = 90;                                                       // Final angle for servo 4
+int startAngleServo5 = 0;                                                      // Initial angle for servo 5
+int endAngleServo5 = 180;                                                      // Final angle for servo 5
+unsigned long previousMillis = 0;                                              // previous millisecond count
+unsigned long interval = 20;                                                   // Time interval between servo position updates (in milliseconds)
+float positionServo3 = startAngleServo3;                                       // Current position of servo 3
+float positionServo4 = startAngleServo4;                                       // Current position of servo 4
+float positionServo5 = endAngleServo5;                                         // Current position of servo 5
+int speedFactorServo3 = 1;                                                     // Speed factor for servo 3
+int speedFactorServo4 = 1;                                                     // Speed factor for servo 4
+int speedFactorServo5 = 1;                                                     // Speed factor for servo 5
+
+// Variables (timers/debounce)
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
 unsigned long timerCountReturn = 0;                                            // return time counter
 unsigned long displayTime;                                                     // heartbeat LED update timer
@@ -116,10 +151,15 @@ Motion Bot = Motion();                                                         /
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
  
+// function declarations
+int degreesToDutyCycle(int deg);
+
 void setup() {
+  // config serial comms
+  Serial.begin(115200);
+
    // Set up motors and encoders
    Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B); // set up motors as Drive 1
-
    LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning ); // set up left encoder
    RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning ); // set up right encoder
 
@@ -131,7 +171,22 @@ void setup() {
 
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
-   modePBDebounce = 0;                                                         // reset debounce timer count
+   modePBDebounce = 0;
+
+   // set up the servo pins as outputs
+   pinMode(SERVO3, OUTPUT);
+   pinMode(SERVO4, OUTPUT);
+   pinMode(SERVO5, OUTPUT);
+
+   // set up LED channels for each servo
+   ledcSetup(PWMCHAN_SERVO3, 40, 14); // pwm channel, frequency and bit resolution
+   ledcSetup(PWMCHAN_SERVO4, 40, 14); // pwm channel, frequency and bit resolution
+   ledcSetup(PWMCHAN_SERVO5, 40, 14); // pwm channel, frequency and bit resolution
+
+   // atach the LED channels for each servo to different GPIO pins
+   ledcAttachPin(SERVO3, PWMCHAN_SERVO3);
+   ledcAttachPin(SERVO4, PWMCHAN_SERVO4);
+   ledcAttachPin(SERVO5, PWMCHAN_SERVO5);                                                      // reset debounce timer count
 
 }
 
