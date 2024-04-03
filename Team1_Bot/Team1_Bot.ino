@@ -58,7 +58,6 @@ struct Encoder {
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
 #define SMART_LED_COUNT     1 
-#define IR_DETECTOR         14                                                 // GPIO14 pin 17 (J14) IR detector input
 
 // Constants
 const int cDisplayUpdate = 100;                                                // update interval for Smart LED in milliseconds
@@ -68,7 +67,7 @@ const int cMaxPWM = pow(2, cPWMRes) - 1;                                       /
 const int cCountsRev = 1096;                                                   // encoder pulses per motor revolution
 const int cReturnTime = 100000;                                                // time for drive system, before returning to base
 const int cTurnRadius = 8;                                                     // bot's turning radius
-const int cRevDistance = 13.195;                                               // distance traversed by the bot for 1 wheel revolution
+const int cRevDistance = 25.761;                                               // distance traversed by the bot for 1 wheel revolution
 
 // adjustment variables and drive speed
 const int cLeftAdjust = 0;                                                     // Amount to slow down left motor relative to right
@@ -116,7 +115,6 @@ unsigned int  modeIndicator[6] = {                                             /
 Motion Bot = Motion();                                                         // Instance of Motion for motor control
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
-IR Scan = IR(); 
  
 void setup() {
    // Set up motors and encoders
@@ -124,8 +122,6 @@ void setup() {
 
    LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning ); // set up left encoder
    RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning ); // set up right encoder
- 
-   Scan.Begin(IR_DETECTOR, 1200);                                              //set up IR Detection @ 1200 baud
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
