@@ -37,7 +37,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_TCS34725.h>
+#include "Adafruit_TCS34725.h"
 #include <MSE2202_Lib.h>
 
 
@@ -65,15 +65,15 @@ struct Encoder {
 #define SERVO4              44                                                 // Left pickup arm servo
 #define SERVO5              43                                                 // Scoop servo
 #define SERVO6                                                                 //
-#define PWMCHAN_SERVO3 0
-#define PWMCHAN_SERVO4 1
-#define PWMCHAN_SERVO5 2
+#define PWMCHAN_SERVO3       0
+#define PWMCHAN_SERVO4       1
+#define PWMCHAN_SERVO5       2
 
 // Port pin constants (other)
-#define MODE_BUTTON         0                                                  // GPIO0  pin 27 for Push Button 1
-#define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
+#define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
+#define MOTOR_ENABLE_SWITCH  3                                                 // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
-#define SMART_LED_COUNT     1 
+#define SMART_LED_COUNT      1 
 
 // Constants
 const int cDisplayUpdate = 100;                                                // update interval for Smart LED in milliseconds
@@ -105,8 +105,6 @@ int startAngleServo4 = 0;                                                      /
 int endAngleServo4 = 90;                                                       // Final angle for servo 4
 int startAngleServo5 = 0;                                                      // Initial angle for servo 5
 int endAngleServo5 = 180;                                                      // Final angle for servo 5
-unsigned long previousMillis = 0;                                              // previous millisecond count
-unsigned long interval = 20;                                                   // Time interval between servo position updates (in milliseconds)
 float positionServo3 = startAngleServo3;                                       // Current position of servo 3
 float positionServo4 = startAngleServo4;                                       // Current position of servo 4
 float positionServo5 = endAngleServo5;                                         // Current position of servo 5
@@ -120,6 +118,8 @@ unsigned long timerCountReturn = 0;                                            /
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
+unsigned long interval = 20000;                                                // Time interval between servo position updates (in microseconds)
+
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -153,6 +153,8 @@ Encoders RightEncoder = Encoders();                                            /
  
 // function declarations
 int degreesToDutyCycle(int deg);
+void Sorting();
+void Indicator();
 
 void setup() {
   // config serial comms
@@ -254,15 +256,59 @@ void loop() {
         break;
 
       case 1: // drive 
-
+        robotModeIndex = 2;
         break;
 
       case 2: // operate pick up
-
+        if (currentMicros >= interval){
+          switch (Pickupflag) {
+            case 1: //close the scoop
+              positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5 ;
+              if(positionServo5 >= endAngleServo5){
+                positionServo5 = endAngleServo5;
+                Pickupflag = 2;
+              }
+              ledcWrite(2, degreesToDutyCycle(positionServo5));
+              break;
+        
+            case 2: // lift the arms
+              positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+              positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+              if ((positionServo3 >= endAngleServo3) && (positionServo4 <= startAngleServo4)){
+                positionServo3 = endAngleServo3;
+                positionServo4 = startAngleServo4;
+                Pickupflag = 3;
+              }
+              ledcWrite(0, degreesToDutyCycle(positionServo3));
+              ledcWrite(1, degreesToDutyCycle(positionServo4));
+              break;
+        
+            case 3: // bring the arms back down
+              positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+              positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+              if ((positionServo3 <= startAngleServo3) && (positionServo4 >= endAngleServo4)) {
+                positionServo3 = startAngleServo3;
+                positionServo4 = endAngleServo4;
+                Pickupflag = 4;
+              }
+              ledcWrite(0, degreesToDutyCycle(positionServo3));
+              ledcWrite(1, degreesToDutyCycle(positionServo4));
+              break;
+      
+            case 4: // re-open the scoop
+              positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
+              if(positionServo5 <= startAngleServo5){
+                positionServo5 = startAngleServo5;
+                robotModeIndex = 3;
+              }
+              ledcWrite(2, degreesToDutyCycle(positionServo5));
+              break;
+          }
+        }
         break;
 
       case 3: // navigate to home base
-
+        robotModeIndex = 0;
         break;
 
       case 4: // open back hatch
@@ -286,6 +332,13 @@ void loop() {
 // sorting system operation
 void Sorting() {
   // code to operate sorting and sorting servos
+}
+// function to return a dutyCyle that should be written using pwm to the servos
+int degreesToDutyCycle(int deg) {
+  const long MinimumDC = 400; // Duty Cycle for 0 degrees
+  const long MaximumDC = 2100; // Duty Cycle for 180 degrees
+  int dutyCycle = map(deg, 0, 180, MinimumDC, MaximumDC); // map from degrees to duty cycle
+  return dutyCycle;
 }
 
 // Set colour of Smart LED depending on robot mode (and update brightness)
