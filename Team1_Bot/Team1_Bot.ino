@@ -28,6 +28,10 @@ struct Encoder{
 #define ENCODER_LEFT_B 16
 #define ENCODER_RIGHT_A 11
 #define ENCODER_RIGHT_B 12
+#define MODE_BUTTON     0                                                  // GPIO0  pin 27 for Push Button 1
+#define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
+#define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
+#define SMART_LED_COUNT     1                                                  // number of smart led's 
 #define PI 3.1415
 #define TRIGGER_PIN  13
 #define ECHO_PIN     14
@@ -38,8 +42,8 @@ struct Encoder{
 #define PWMCHAN_SERVO5 6
 
 
-// constants for dc motors
-
+// constants
+const int cDisplayUpdate = 100;                                                // update interval for Smart LED in milliseconds
 const int cPWMRes = 4; // bit resolution for pwm
 const int cMinPWM = 150; // pwm value for minimum speed that turns motor
 const int cMaxPWM = pow(2, cPWMRes) - 1; // max pwm value
@@ -62,9 +66,7 @@ unsigned char leftTurnSpeed = 200 - cLeftAdjust; // left turn speed adjustment
 unsigned char rightTurnSpeed = 200 - cRightAdjust; // right speed adjustment
 unsigned int robotModeIndex = 0; // runmode state
 unsigned int driveIndex = 0; //state index for drive
-unsigned int homeIndex = 0; //state index for return drive
 int Pickupflag = 1; // flag to switch between cases of pickup
-
 
 // start and end angles for each servo
 int startAngleServo3 = 0;  // Initial angle for servo 3
@@ -76,6 +78,8 @@ int endAngleServo5 = 180; // Final angle for servo 5
 
 unsigned long previousMillis = 0; // previous millisecond count
 unsigned long interval = 20; // Time interval between servo position updates (in milliseconds)
+unsigned long displayTime;                                                     // heartbeat LED update timer
+
 
 float positionServo3 = startAngleServo3; // Current position of servo 3
 float positionServo4 = startAngleServo4; // Current position of servo 4
@@ -85,11 +89,36 @@ int speedFactorServo3 = 1; // Speed factor for servo 3
 int speedFactorServo4 = 1; // Speed factor for servo 4
 int speedFactorServo5 = 1; // Speed factor for servo 5
 
+// Declare SK6812 SMART LED object
+//   Argument 1 = Number of LEDs (pixels) in use
+//   Argument 2 = ESP32 pin number 
+//   Argument 3 = Pixel type flags, add together as needed:
+//     NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
+//     NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
+//     NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
+//     NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
+//     NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
+Adafruit_NeoPixel SmartLEDs(SMART_LED_COUNT, SMART_LED, NEO_RGB + NEO_KHZ800);
+
+// smart LED brightness for heartbeat
+unsigned char LEDBrightnessIndex = 0; 
+unsigned char LEDBrightnessLevels[] = {5,15,30,45,60,75,90,105,120,135,150,165,180,195,210,225,240,255,
+                                       240,225,210,195,180,165,150,135,120,105,90,75,60,45,30,15};
+                             
+unsigned int  modeIndicator[6] = {                                             // colours for different modes
+   SmartLEDs.Color(255,0,0),                                                   // red - stop
+   SmartLEDs.Color(0,255,0),                                                   // green - drive
+   SmartLEDs.Color(0,0,255),                                                   // blue - pick up
+   SmartLEDs.Color(255,255,0),                                                 // yellow - navigate home
+   SmartLEDs.Color(0,255,255),                                                 // cyan - release
+   SmartLEDs.Color(255,0,255)                                                  // magenta - empty case
+};                                                                      
 
 // function declarations
 int degreesToDutyCycle(int deg);
 void Pickup();
 int getDistance();
+void Indicator();
 
 Motion Bot = Motion();
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
@@ -99,7 +128,6 @@ Encoders RightEncoder = Encoders();                                            /
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
 
 void setup() {
-
   // config serial comms
   Serial.begin(115200);
 
@@ -107,6 +135,15 @@ void setup() {
    Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B);  // set up motors as Drive 1
    LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning );      // set up left encoder
    RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning );  // set up right encoder
+  
+  // Set up SmartLED
+   SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
+   SmartLEDs.clear();                                                          // clear pixel
+   SmartLEDs.setPixelColor(0,SmartLEDs.Color(0,0,0));                          // set pixel colors to 'off'
+   SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
+   
+   pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
+   pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
 
   // set up the servo pins as outputs
   pinMode(SERVO3, OUTPUT);
@@ -136,11 +173,20 @@ void loop() {
   long pos[] = {0, 0};                                             // current motor positions
   unsigned long currentMillis = millis();
   unsigned long elapsedTime = currentMillis - previousMillis;
+  
+  // Mode pushbutton debounce and toggle
+  if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
+    robotModeIndex = 1;
+  }
+
+  // check if drive motors should be powered
+  motorsEnabled = !digitalRead(MOTOR_ENABLE_SWITCH);                          // if SW1-1 is on (low signal), then motors are enabled\
+
   switch (robotModeIndex){
     case 0: // robot stopped
       Bot.Stop("D1");                                                         // Stop the wheels
       RightEncoder.clearEncoder();                                            // reset right encoder count
-      robotModeIndex = 1;                                                         // set the drive index to 1 (first driving state)
+      driveIndex = 0;                                                         // set the drive index to 1 (first driving state)
       break;
     
     case 1: // drive
@@ -202,6 +248,7 @@ void loop() {
                 driveIndex = 3;
                 if(turnNo == 5){
                   robotModeIndex = 2;
+                  Bot.Stop("D1");
                 }
               }
               break; 
@@ -227,11 +274,22 @@ void loop() {
       }
       */
       RightEncoder.getEncoderRawCount();
-      if(RightEncoder.lRawEncoderCount >= cCountsRev * (cDriveDistance + cInitialDrive)/cRevDistance){
+      if(RightEncoder.lRawEncoderCount <= cCountsRev * (cDriveDistance + cInitialDrive)/cRevDistance){
         RightEncoder.clearEncoder();
         robotModeIndex = 0;
       }
       break;
+    }
+    // Update brightness of heartbeat display on SmartLED
+    displayTime++;                                                            // count milliseconds
+    if (displayTime > cDisplayUpdate) {                                       // when display update period has passed
+      displayTime = 0;                                                        // reset display counter
+      LEDBrightnessIndex++;                                                   // shift to next brightness level
+    if (LEDBrightnessIndex > sizeof(LEDBrightnessLevels)) {                 // if all defined levels have been used
+      LEDBrightnessIndex = 0;                                               // reset to starting brightness
+    }
+    SmartLEDs.setBrightness(LEDBrightnessLevels[LEDBrightnessIndex]);       // set brightness of heartbeat LED
+    Indicator();                                                            // update LED 
   }
   // Update servo positions based on elapsed time and speed factors
 }
@@ -284,4 +342,10 @@ int degreesToDutyCycle(int deg) {
   const long MaximumDC = 2100; // Duty Cycle for 180 degrees
   int dutyCycle = map(deg, 0, 180, MinimumDC, MaximumDC); // map from degrees to duty cycle
   return dutyCycle;
+}
+
+// Set colour of Smart LED depending on robot mode (and update brightness)
+void Indicator() {
+  SmartLEDs.setPixelColor(0, modeIndicator[robotModeIndex]);                  // set pixel colors to = mode 
+  SmartLEDs.show();                                                           // send the updated pixel colors to the hardware
 }
