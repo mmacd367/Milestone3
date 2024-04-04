@@ -59,7 +59,7 @@ struct Encoder {
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 
 // Port pin constants (servo motors)
-#define SERVO1              38                                                 // 
+#define SERVO1               1                                                 // 
 #define SERVO2              39                                                 //
 #define SERVO3              40                                                 // Right pickup arm servo
 #define SERVO4              41                                                 // Left pickup arm servo
@@ -69,7 +69,7 @@ struct Encoder {
 #define PWMCHAN_SERVO2       5
 #define PWMCHAN_SERVO3       6
 #define PWMCHAN_SERVO4       7
-#define PWMCHAN_SERVO5       8
+#define PWMCHAN_SERVO5       4
 
 // Port pin constants (other)
 #define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
@@ -167,6 +167,7 @@ Encoders RightEncoder = Encoders();                                            /
  
 // function declarations
 int degreesToDutyCycle(int deg);
+void Grasp();
 void Pickup();
 void Sorting();
 void Indicator();
@@ -273,23 +274,34 @@ void loop() {
         robotModeIndex = 2;
         break;
 
-      case 2: // operate pick up
+      case 2: // operate grasp up
+        if(elapsedTime >= interval){
+          Grasp();
+          previousMicros = currentMicros;
+        }
+        
+        if(positionServo5 == startAngleServo5){
+          ledcDetachPin(SERVO5);
+          ledcAttachPin(SERVO1, PWMCHAN_SERVO1);
+        }
+        break;
+
+      case 3: // drive backward
+        break;
+
+      case 4: // operate pickup
         if(elapsedTime >= interval){
           Pickup();
           previousMicros = currentMicros;
         }
         break;
 
-      case 3: // Sort
+      case 5: // Sort
         if(elapsedTime >= interval){
           Sorting();
           previousMicros = currentMicros;
+        }
         break;
-
-      case 4: // open back hatch
-
-        break;
-    }
 
     // Update brightness of heartbeat display on SmartLED
     displayTime++;                                                            // count milliseconds
@@ -306,58 +318,46 @@ void loop() {
   }
 }
 
+// scoop operation
+void Grasp(){
+  positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
+  if(positionServo5 <= startAngleServo5){
+    Serial.println("test1");
+    positionServo5 = startAngleServo5;
+    robotModeIndex = 3; //CHANGE THIS OPERATION IDK WHAT OPERATION NUMBER IS NEXT
+  }
+  ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
+  Serial.printf("%f\n", positionServo5);
+  Serial.println("test if servo 5 is written 2 close");
+}
+
 // pickup system operation
 void Pickup() {
   switch (Pickupflag) {
       case 1:
-        positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
-        if(positionServo5 <= startAngleServo5){
-          Serial.println("test1");
-          positionServo5 = startAngleServo5;
-          Pickupflag = 2;
-        }
-        ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
-        Serial.printf("%f\n", positionServo5);
-        Serial.println("test if servo 5 is written 2 open");
-        break;
-        
-      case 2:
         positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
         positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
         if ((positionServo3 >= endAngleServo3) && (positionServo4 <= startAngleServo4)){
           positionServo3 = endAngleServo3;
           positionServo4 = startAngleServo4;
-          Pickupflag = 3;
+          Pickupflag = 2;
         }
         ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
         ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
         break;
         
-      case 3:
+      case 2:
         positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
         positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
         if ((positionServo3 <= startAngleServo3) && (positionServo4 >= endAngleServo4)) {
           positionServo3 = startAngleServo3;
           positionServo4 = endAngleServo4;
-          Pickupflag = 4;
+          Pickupflag = 1;
+          robotModeIndex = 5; 
         }
         ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
         ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
         break;
-      
-      case 4:
-        positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5 ;
-        if(positionServo5 >= endAngleServo5){
-          Serial.println("test2");
-          positionServo5 = endAngleServo5;
-          Pickupflag = 1;
-          Operationflag = 2; // next operation
-        }
-        ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
-        Serial.printf("%f\n", positionServo5);
-        Serial.println("test if servo 5 is written 2 close ");
-        break;
-
     }
 }
 
