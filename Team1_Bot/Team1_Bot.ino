@@ -59,16 +59,12 @@ struct Encoder {
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 
 // Port pin constants (servo motors)
-#define SERVO1              42                                                 // 
-#define SERVO2              39                                                 //
 #define SERVO3              40                                                 // Right pickup arm servo
 #define SERVO4              41                                                 // Left pickup arm servo
 #define SERVO5               1                                                 // Scoop servo                                                                 //
-#define PWMCHAN_SERVO1       4 
-#define PWMCHAN_SERVO2       5
-#define PWMCHAN_SERVO3       6
-#define PWMCHAN_SERVO4       7
-#define PWMCHAN_SERVO5       4
+#define PWMCHAN_SERVO3       4
+#define PWMCHAN_SERVO4       5
+#define PWMCHAN_SERVO5       6
 
 // Port pin constants (other)
 #define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
@@ -97,29 +93,18 @@ unsigned char leftDriveSpeed;                                                  /
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
-int Operationflag = 1;
 int Pickupflag = 1;                                                            // flag to switch between cases
-int Sortflag = 1;
-int goodflag = 1;
 
 // Variables (servos)
-int startAngleServo1 = 0;  // Initial angle for servo 1
-int endAngleServo1 = 90;   // Final angle for servo 2
-int startAngleServo2 = 0; // Initial angle for servo 1
-int endAngleServo2 = 90;  // Final angle for servo 2
 int startAngleServo3 = 0;  // Initial angle for servo 3
 int endAngleServo3 = 90;   // Final angle for servo 3
 int startAngleServo4 = 0; // Initial angle for servo 4
 int endAngleServo4 = 90;  // Final angle for servo 4
 int startAngleServo5 = 0; // Initial angle for servo 5
 int endAngleServo5 = 180; // Final angle for servo 5
-float positionServo1 = startAngleServo1; // Current position of servo 1
-float positionServo2 = startAngleServo2; // Current position of servo 2
 float positionServo3 = startAngleServo3; // Current position of servo 3
 float positionServo4 = startAngleServo4; // Current position of servo 4
 float positionServo5 = endAngleServo5; // Current position of servo 5
-int speedFactorServo1 = 1; // Speed factor for servo 1
-int speedFactorServo2 = 5; // Speed factor for servo 2
 int speedFactorServo3 = 1; // Speed factor for servo 3
 int speedFactorServo4 = 1; // Speed factor for servo 4
 int speedFactorServo5 = 1; // Speed factor for servo 5
@@ -131,7 +116,7 @@ unsigned long displayTime;                                                     /
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
 unsigned long elapsedTime;
-unsigned long interval = 20000;                                                // Time interval between servo position updates (in microseconds)
+unsigned long interval = 200000;                                                // Time interval between servo position updates (in microseconds)
 
 
 // Declare SK6812 SMART LED object
@@ -159,7 +144,7 @@ unsigned int  modeIndicator[6] = {                                             /
    SmartLEDs.Color(255,0,255)                                                  // magenta - empty case
 };                                                                            
 
-// Motor, encoder, and IR objects (classes defined in MSE2202_Lib)
+// Motor and encoder objects (classes defined in MSE2202_Lib)
 Motion Bot = Motion();                                                         // Instance of Motion for motor control
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
@@ -168,7 +153,6 @@ Encoders RightEncoder = Encoders();                                            /
 int degreesToDutyCycle(int deg);
 void Grasp();
 void Pickup();
-void Sorting();
 void Indicator();
 
 void setup() {
@@ -188,26 +172,19 @@ void setup() {
 
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
-   modePBDebounce = 0;
 
    // set up the servo pins as outputs
-  pinMode(SERVO1, OUTPUT);
-  pinMode(SERVO2, OUTPUT);
   pinMode(SERVO3, OUTPUT);
   pinMode(SERVO4, OUTPUT);
   pinMode(SERVO5, OUTPUT);
 
   // set up LED channels for each servo
-  ledcSetup(PWMCHAN_SERVO1, 40, 14); // pwm channel, frequency and bit resolution
-  ledcSetup(PWMCHAN_SERVO2, 40, 14); // pwm channel, frequency and bit resolution
   ledcSetup(PWMCHAN_SERVO3, 40, 14); // pwm channel, frequency and bit resolution
   ledcSetup(PWMCHAN_SERVO4, 40, 14); // pwm channel, frequency and bit resolution
   ledcSetup(PWMCHAN_SERVO5, 40, 14); // pwm channel, frequency and bit resolution
 
 
   // atach the LED channels for each servo to different GPIO pins
-  ledcAttachPin(SERVO1, PWMCHAN_SERVO1);
-  ledcAttachPin(SERVO2, PWMCHAN_SERVO2);
   ledcAttachPin(SERVO3, PWMCHAN_SERVO3);
   ledcAttachPin(SERVO4, PWMCHAN_SERVO4);
   ledcAttachPin(SERVO5, PWMCHAN_SERVO5);
@@ -218,42 +195,9 @@ void loop() {
    
   currentMicros = micros();                                                   // get current time in microseconds
   if((currentMicros - previousMicros) >= 1000){                               // enter if 1 millisecond has passed since last entry
-    previousMicros = currentMicros;                                           // record current time in microseconds 
-    elapsedTime = currentMicros - previousMicros;
+   elapsedTime = currentMicros-previousMicros;
 
-    // Mode pushbutton debounce and toggle
-    if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
-    
-      // Start debounce
-      if (modePBDebounce <= 25) {                                               // 25 millisecond debounce time
-        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
-        if (modePBDebounce > 25) {                                              // if held for at least 25 mS
-          modePBDebounce = 1000;                                                // change debounce timer count to 1 second
-        }
-      }
-
-      if (modePBDebounce >= 1000) {                                             // maintain 1 second timer count until release
-        modePBDebounce = 1000;
-      }
-    }
-
-    else {                                                                      // pushbutton GPIO goes HIGH (nominal release)
-      if(modePBDebounce <= 26) {                                                // if release occurs within debounce interval
-        modePBDebounce = 0;                                                     // reset debounce timer count
-      }
-      else {
-        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
-        if(modePBDebounce >= 1025) {                                            // if pushbutton was released for 25 mS
-          modePBDebounce = 0;                                                   // reset debounce timer count
-          robotModeIndex++;                                                     // move robot to next mode
-          robotModeIndex = robotModeIndex & 7;                                  // keep mode index between 0 and 7
-          timeUpReturn = false;                                                 // reset return timer
-        }
-      }
-    }
-
-    // check if drive motors should be powered REMOVE?? NECESSARY???
-    motorsEnabled = !digitalRead(MOTOR_ENABLE_SWITCH);                          // if SW1-1 is on (low signal), then motors are enabled\
+   motorsEnabled = !digitalRead(MOTOR_ENABLE_SWITCH);                          // if SW1-1 is on (low signal), then motors are enabled\
 
     // drive and operation modes
     // 0 = Default after power up/reset. Robot is stopped.
@@ -278,28 +222,17 @@ void loop() {
           Grasp();
           previousMicros = currentMicros;
         }
-        
-        if(positionServo5 == startAngleServo5){
-          ledcDetachPin(SERVO5);
-          ledcAttachPin(SERVO1, PWMCHAN_SERVO1);
-        }
         break;
 
-      case 3: // drive backward
-        break;
-
-      case 4: // operate pickup
+      case 3: // operate pickup
         if(elapsedTime >= interval){
           Pickup();
           previousMicros = currentMicros;
         }
         break;
 
-      case 5: // Sort
-        if(elapsedTime >= interval){
-          Sorting();
-          previousMicros = currentMicros;
-        }
+      case 4: // drive backward
+
         break;
 
     // Update brightness of heartbeat display on SmartLED
@@ -319,10 +252,10 @@ void loop() {
 
 // scoop operation
 void Grasp(){
-  positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
-  if(positionServo5 <= startAngleServo5){
+  positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
+  if(positionServo5 >= endAngleServo5){
     Serial.println("test1");
-    positionServo5 = startAngleServo5;
+    positionServo5 = endAngleServo5;
     robotModeIndex = 3; //CHANGE THIS OPERATION IDK WHAT OPERATION NUMBER IS NEXT
   }
   ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
@@ -352,7 +285,7 @@ void Pickup() {
           positionServo3 = startAngleServo3;
           positionServo4 = endAngleServo4;
           Pickupflag = 1;
-          robotModeIndex = 5; 
+          robotModeIndex = 4; 
         }
         ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
         ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
@@ -360,101 +293,6 @@ void Pickup() {
     }
 }
 
-void Sorting(){
-  if (goodflag){
-      switch (Sortflag) {
-      case 1:
-        positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
-        if(positionServo1 >= endAngleServo1){
-          Serial.println("test1");
-          positionServo1 = endAngleServo1;
-          Sortflag = 2;
-        }
-        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
-        Serial.printf("%f\n", positionServo1);
-        Serial.println("test if servo 1 is written 2 open");
-        break;
-        
-      case 2:
-        positionServo2 += ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
-        if (positionServo2 >= endAngleServo2){
-          positionServo2 = endAngleServo2;
-          Sortflag = 3;
-        }
-        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
-        break;
-        
-      case 3:
-        positionServo2 -= ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
-        if (positionServo2 <= startAngleServo2) {
-          positionServo2 = startAngleServo2;
-          Sortflag = 4;
-        }
-        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
-        break;
-      
-      case 4:
-        positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1 ;
-        if(positionServo1 <= startAngleServo1){
-          Serial.println("test2");
-          positionServo1 = startAngleServo1;
-          Sortflag = 1;
-          Operationflag = 1;
-        }
-        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
-        Serial.printf("%f\n", positionServo1);
-        Serial.println("test if servo 1 is written 2 close ");
-        break;
-      }
-    }
-
-    else{
-      switch (Sortflag) {
-      case 1:
-        positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
-        if(positionServo1 >= endAngleServo1){
-          Serial.println("test1");
-          positionServo1 = endAngleServo1;
-          Sortflag = 2;
-        }
-        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
-        Serial.printf("%f\n", positionServo1);
-        Serial.println("test if servo 1 is written 2 open");
-        break;
-        
-      case 2:
-        positionServo2 += ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
-        if (positionServo2 >= endAngleServo2){
-          positionServo2 = endAngleServo2;
-          Sortflag = 3;
-        }
-        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
-        break;
-        
-      case 3:
-        positionServo2 -= ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
-        if (positionServo2 <= startAngleServo2) {
-          positionServo2 = startAngleServo2;
-          Sortflag = 4;
-        }
-        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
-        break;
-      
-      case 4:
-        positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1 ;
-        if(positionServo1 <= startAngleServo1){
-          Serial.println("test2");
-          positionServo1 = startAngleServo1;
-          Sortflag = 1;
-          Operationflag = 1; 
-        }
-        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
-        Serial.printf("%f\n", positionServo1);
-        Serial.println("test if servo 1 is written 2 close ");
-        break;
-      }  
-  }
-}
 
 // function to return a dutyCyle that should be written using pwm to the servos
 int degreesToDutyCycle(int deg) {
