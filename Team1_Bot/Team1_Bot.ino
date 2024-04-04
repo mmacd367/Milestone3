@@ -59,12 +59,11 @@ struct Encoder {
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 
 // Port pin constants (servo motors)
-#define SERVO1               1                                                 // 
+#define SERVO1              42                                                 // 
 #define SERVO2              39                                                 //
 #define SERVO3              40                                                 // Right pickup arm servo
 #define SERVO4              41                                                 // Left pickup arm servo
-#define SERVO5              42                                                 // Scoop servo
-#define SERVO6                                                                 //
+#define SERVO5               1                                                 // Scoop servo                                                                 //
 #define PWMCHAN_SERVO1       4 
 #define PWMCHAN_SERVO2       5
 #define PWMCHAN_SERVO3       6
