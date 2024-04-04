@@ -70,11 +70,11 @@ const int cCountsRev = 1096;                                                   /
 const float cTurnRadius = 5;                                                 // bot's turning radius
 const float cRevDistance = 25.761;                                             // distance traversed by the bot for 1 wheel revolution
 const float cDriveDistance = 200;                                                     // distance for the bot to travel forward/backward
-const float cInitialDrive = 10;                                                 // distance for the bot to initially travel out
+const float cInitialDrive = 25;                                                 // distance for the bot to initially travel out
 
 // adjustment variables and drive speed
 const int cLeftAdjust = 0;                                                     // Amount to slow down left motor relative to right
-const int cRightAdjust = 2;                                                    // Amount to slow down right motor relative to left
+const int cRightAdjust = 1;                                                    // Amount to slow down right motor relative to left
 
 // Variables
 boolean motorsEnabled = true;                                                  // motors enabled flag
@@ -215,15 +215,10 @@ void loop() {
             case 1: // turn right
               Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount >= cCountsRev * ((PI/2)*cTurnRadius/cRevDistance)){
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * ((PI/2)*7.4/cRevDistance)){
                 RightEncoder.clearEncoder();
                 Serial.println("right turn");
-                if(!returning){
-                  driveIndex = 2;
-                }
-                else if(returning){
-                  robotModeIndex = 0;
-                }
+                driveIndex = 2;
               }
               break;
 
@@ -233,27 +228,23 @@ void loop() {
               if(RightEncoder.lRawEncoderCount >= cCountsRev * ((cDriveDistance/2)/cRevDistance)){
                 RightEncoder.clearEncoder();
                 Serial.println("Half drive forward");
-                if(!returning){
-                  driveIndex = 3;
-                  returning = true;
-                }
-                else if(returning){
-                  driveIndex = 1;
-                }
-                
+                driveIndex = 3;
               }
               break;
 
             case 3: // turn left
               Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
               RightEncoder.getEncoderRawCount();
-              if(RightEncoder.lRawEncoderCount <= cCountsRev * ((PI/2)*cTurnRadius*-1/cRevDistance)){
+              if(RightEncoder.lRawEncoderCount <= cCountsRev * ((PI/2)*3.7*-1/cRevDistance)){
                 RightEncoder.clearEncoder();
                 Serial.println("Turn left");
                 driveIndex = 4;
                 turnNo++;
                 if(turnNo == 4){
                   driveIndex = 2;
+                }
+                if(turnNo == 5){
+                  driveIndex = 4;
                 }
               }
               break;
@@ -265,6 +256,9 @@ void loop() {
                 RightEncoder.clearEncoder();
                 Serial.println("Forward");
                 driveIndex = 3;
+                if(turnNo == 5){
+                  robotModeIndex = 0;
+                }
               }
               break; 
           }
