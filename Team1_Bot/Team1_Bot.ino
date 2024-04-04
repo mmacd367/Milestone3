@@ -5,6 +5,7 @@
  Author: Mia Macdonald-Walden
 
  Rev 1  - Initial Version March 20 2024
+ Rev 2  - Changed drive system path
 
 */
 
@@ -30,15 +31,11 @@
 //  release the program button 
 //
 
-//Debugging Keywords
-//
-
+// import relevant packages
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
-#include <Wire.h>
-#include <SPI.h>
-#include "Adafruit_TCS34725.h"
 #include <MSE2202_Lib.h>
+#include <NewPing.h>
 
 
 // Encoder structure
@@ -48,7 +45,7 @@ struct Encoder {
    long pos;                                                                   // current encoder position
 };
 
-// Port pin constants (motors and encoders)
+// Port pin constants
 #define LEFT_MOTOR_A        35                                                 // GPIO35 pin 28 (J35) Motor 1 A
 #define LEFT_MOTOR_B        36                                                 // GPIO36 pin 29 (J36) Motor 1 B
 #define RIGHT_MOTOR_A       37                                                 // GPIO37 pin 30 (J37) Motor 2 A
@@ -57,20 +54,14 @@ struct Encoder {
 #define ENCODER_LEFT_B      16                                                 // left encoder B signal is connected to pin 8 GPIO16 (J16)
 #define ENCODER_RIGHT_A     11                                                 // right encoder A signal is connected to pin 19 GPIO11 (J11)
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
-
-// Port pin constants (servo motors)
-#define SERVO3              40                                                 // Right pickup arm servo
-#define SERVO4              41                                                 // Left pickup arm servo
-#define SERVO5               1                                                 // Scoop servo                                                                 //
-#define PWMCHAN_SERVO3       4
-#define PWMCHAN_SERVO4       5
-#define PWMCHAN_SERVO5       6
-
-// Port pin constants (other)
-#define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
-#define MOTOR_ENABLE_SWITCH  3                                                 // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
+#define MODE_BUTTON         0                                                  // GPIO0  pin 27 for Push Button 1
+#define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
-#define SMART_LED_COUNT      1 
+#define SMART_LED_COUNT     1                                                  // number of smart led's 
+#define TRIGGER_PIN            13                                                 // GIPO pin for the ultrasonic sensor (trig)
+#define ECHO_PIN            14                                                 // GIPO pin for the ultrasonic sensor (echo)
+#define MAX_DISTANCE        30                                                  
+#define PI                  3.1415926535897932384626433832795                  // const. value for PI
 
 // Constants
 const int cDisplayUpdate = 100;                                                // update interval for Smart LED in milliseconds
@@ -78,46 +69,29 @@ const int cPWMRes = 4;                                                         /
 const int cMinPWM = 150;                                                       // PWM value for minimum speed that turns motor
 const int cMaxPWM = pow(2, cPWMRes) - 1;                                       // PWM value for maximum speed
 const int cCountsRev = 1096;                                                   // encoder pulses per motor revolution
-const int cReturnTime = 100000;                                                // time for drive system, before returning to base
-const int cTurnRadius = 8;                                                     // bot's turning radius
-const int cRevDistance = 25.761;                                               // distance traversed by the bot for 1 wheel revolution
+const float cRevDistance = 25.761;                                             // distance traversed by the bot for 1 wheel revolution
+const float cDriveDistance = 200;                                                     // distance for the bot to travel forward/backward
+const float cInitialDrive = 25;                                                 // distance for the bot to initially travel out
 
 // adjustment variables and drive speed
 const int cLeftAdjust = 0;                                                     // Amount to slow down left motor relative to right
-const int cRightAdjust = 0;                                                    // Amount to slow down right motor relative to left
+const int cRightAdjust = 1;                                                    // Amount to slow down right motor relative to left
 
-// Variables (operation)
+// Variables
 boolean motorsEnabled = true;                                                  // motors enabled flag
-boolean timeUpReturn = false;                                                  // drive timer elapsed flag
-unsigned char leftDriveSpeed;                                                  // motor drive speed (0-255)
-unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
+boolean returning = false;                                                     // flag to indicate whether the ultrasonic sensor must wait
+unsigned int turnNo = 0;                                                       // indicates number of turns that have been completed
+unsigned char leftDriveSpeed = 255 - cLeftAdjust;                              // motor drive speed (0-255)
+unsigned char rightDriveSpeed = 255 - cRightAdjust;                            // motor drive speed (0-255)
+unsigned char leftTurnSpeed = 200 - cLeftAdjust;
+unsigned char rightTurnSpeed = 200 - cRightAdjust;
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
-int Pickupflag = 1;                                                            // flag to switch between cases
-
-// Variables (servos)
-int startAngleServo3 = 0;  // Initial angle for servo 3
-int endAngleServo3 = 90;   // Final angle for servo 3
-int startAngleServo4 = 0; // Initial angle for servo 4
-int endAngleServo4 = 90;  // Final angle for servo 4
-int startAngleServo5 = 0; // Initial angle for servo 5
-int endAngleServo5 = 180; // Final angle for servo 5
-float positionServo3 = startAngleServo3; // Current position of servo 3
-float positionServo4 = startAngleServo4; // Current position of servo 4
-float positionServo5 = endAngleServo5; // Current position of servo 5
-int speedFactorServo3 = 1; // Speed factor for servo 3
-int speedFactorServo4 = 1; // Speed factor for servo 4
-int speedFactorServo5 = 1; // Speed factor for servo 5
-
-// Variables (timers/debounce)
+unsigned int homeIndex = 0;                                                    // state index for return drive
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
-unsigned long timerCountReturn = 0;                                            // return time counter
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
-unsigned long elapsedTime;
-unsigned long interval = 200000;                                                // Time interval between servo position updates (in microseconds)
-
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -144,25 +118,23 @@ unsigned int  modeIndicator[6] = {                                             /
    SmartLEDs.Color(255,0,255)                                                  // magenta - empty case
 };                                                                            
 
+// functions 
+int getDistance();
+void Indicator();
+
 // Motor and encoder objects (classes defined in MSE2202_Lib)
 Motion Bot = Motion();                                                         // Instance of Motion for motor control
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
- 
-// function declarations
-int degreesToDutyCycle(int deg);
-void Grasp();
-void Pickup();
-void Indicator();
+
+// ultrasonic object
+NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
 
 void setup() {
-  // config serial comms
-  Serial.begin(115200);
-
    // Set up motors and encoders
-   Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B); // set up motors as Drive 1
-   LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning ); // set up left encoder
-   RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning ); // set up right encoder
+   Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B);  // set up motors as Drive 1
+   LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning );      // set up left encoder
+   RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning );  // set up right encoder
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
@@ -172,22 +144,7 @@ void setup() {
 
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
-
-   // set up the servo pins as outputs
-  pinMode(SERVO3, OUTPUT);
-  pinMode(SERVO4, OUTPUT);
-  pinMode(SERVO5, OUTPUT);
-
-  // set up LED channels for each servo
-  ledcSetup(PWMCHAN_SERVO3, 40, 14); // pwm channel, frequency and bit resolution
-  ledcSetup(PWMCHAN_SERVO4, 40, 14); // pwm channel, frequency and bit resolution
-  ledcSetup(PWMCHAN_SERVO5, 40, 14); // pwm channel, frequency and bit resolution
-
-
-  // atach the LED channels for each servo to different GPIO pins
-  ledcAttachPin(SERVO3, PWMCHAN_SERVO3);
-  ledcAttachPin(SERVO4, PWMCHAN_SERVO4);
-  ledcAttachPin(SERVO5, PWMCHAN_SERVO5);
+   modePBDebounce = 0;                                                         // reset debounce timer count
 }
 
 void loop() {
@@ -195,9 +152,40 @@ void loop() {
    
   currentMicros = micros();                                                   // get current time in microseconds
   if((currentMicros - previousMicros) >= 1000){                               // enter if 1 millisecond has passed since last entry
-   elapsedTime = currentMicros-previousMicros;
+    previousMicros = currentMicros;                                           // record current time in microseconds 
 
-   motorsEnabled = !digitalRead(MOTOR_ENABLE_SWITCH);                          // if SW1-1 is on (low signal), then motors are enabled\
+    // Mode pushbutton debounce and toggle
+    if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
+    
+      // Start debounce
+      if (modePBDebounce <= 25) {                                               // 25 millisecond debounce time
+        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
+        if (modePBDebounce > 25) {                                              // if held for at least 25 mS
+          modePBDebounce = 1000;                                                // change debounce timer count to 1 second
+        }
+      }
+
+      if (modePBDebounce >= 1000) {                                             // maintain 1 second timer count until release
+        modePBDebounce = 1000;
+      }
+    }
+
+    else {                                                                      // pushbutton GPIO goes HIGH (nominal release)
+      if(modePBDebounce <= 26) {                                                // if release occurs within debounce interval
+        modePBDebounce = 0;                                                     // reset debounce timer count
+      }
+      else {
+        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
+        if(modePBDebounce >= 1025) {                                            // if pushbutton was released for 25 mS
+          modePBDebounce = 0;                                                   // reset debounce timer count
+          robotModeIndex++;                                                     // move robot to next mode
+          robotModeIndex = robotModeIndex & 7;                                  // keep mode index between 0 and 7
+        }
+      }
+    }
+
+    // check if drive motors should be powered REMOVE?? NECESSARY???
+    motorsEnabled = !digitalRead(MOTOR_ENABLE_SWITCH);                          // if SW1-1 is on (low signal), then motors are enabled\
 
     // drive and operation modes
     // 0 = Default after power up/reset. Robot is stopped.
@@ -208,32 +196,91 @@ void loop() {
     switch(robotModeIndex){
       case 0: // robot stopped
         Bot.Stop("D1");                                                         // Stop the wheels
-        LeftEncoder.clearEncoder();                                             // reset left encoder count
         RightEncoder.clearEncoder();                                            // reset right encoder count
-        driveIndex = 0;                                                         // set the drive index to 0 (first driving state)
+        driveIndex = 0;                                                         // set the drive index to 1 (first driving state)
         break;
 
-      case 1: // drive 
-        robotModeIndex = 2;
-        break;
+      case 1: // drive                              
+        if(motorsEnabled){
+          switch(driveIndex){                                                   // drive mode control
+            case 0: //Drive forward into square 
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (cInitialDrive/cRevDistance)){
+                RightEncoder.clearEncoder();
+                Serial.println("Drive forward");
+                driveIndex = 1;
+              }
+              break;
 
-      case 2: // operate grasp up
-        if(elapsedTime >= interval){
-          Grasp();
-          previousMicros = currentMicros;
+            case 1: // turn right
+              Bot.Right("D1", leftTurnSpeed, rightTurnSpeed);
+              RightEncoder.getEncoderRawCount();
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * ((PI/2)*7.4/cRevDistance)){
+                RightEncoder.clearEncoder();
+                Serial.println("right turn");
+                driveIndex = 2;
+              }
+              break;
+
+            case 2: // drive forward
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * ((cDriveDistance/2)/cRevDistance)){
+                RightEncoder.clearEncoder();
+                Serial.println("Half drive forward");
+                driveIndex = 3;
+              }
+              break;
+
+            case 3: // turn left
+              Bot.Left("D1", leftTurnSpeed, rightTurnSpeed);
+              RightEncoder.getEncoderRawCount();
+              if(RightEncoder.lRawEncoderCount <= cCountsRev * ((PI/2)*3.7*-1/cRevDistance)){
+                RightEncoder.clearEncoder();
+                Serial.println("Turn left");
+                driveIndex = 4;
+                turnNo++;
+                if(turnNo == 4){
+                  driveIndex = 2;
+                }
+                if(turnNo == 5){
+                  driveIndex = 4;
+                }
+              }
+              break;
+
+            case 4: // sweep forward
+              Bot.Forward("D1", leftDriveSpeed, rightDriveSpeed);
+              RightEncoder.getEncoderRawCount();
+              if(RightEncoder.lRawEncoderCount >= cCountsRev * (cDriveDistance/cRevDistance)){
+                RightEncoder.clearEncoder();
+                Serial.println("Forward");
+                driveIndex = 3;
+                if(turnNo == 5){
+                  robotModeIndex = 3;
+                }
+              }
+              break; 
+          }
         }
         break;
 
-      case 3: // operate pickup
-        if(elapsedTime >= interval){
-          Pickup();
-          previousMicros = currentMicros;
+      case 2: // operate pick up
+        // code for pick up (not yet completed)
+        Serial.println("pick up");                                                    
+        robotModeIndex = 3;                                                      // switch back to the drive mode
+        break;
+
+      case 3: // navigate to home base
+        Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+        int currentDist = getDistance();
+        if(currentDist == 0){
+          Bot.Stop("D1");
+          robotModeIndex = 0;
         }
         break;
-
-      case 4: // drive backward
-
-        break;
+    }
 
     // Update brightness of heartbeat display on SmartLED
     displayTime++;                                                            // count milliseconds
@@ -247,59 +294,20 @@ void loop() {
       Indicator();                                                            // update LED
     }
   }
+}
+
+// sorting system operation
+void Sorting() {
+  // code to operate sorting and sorting servos (not yet completed)
+}
+
+int getDistance() {
+  int d = 0;
+  for(int i = 1; i <= 8; i++)
+  {
+    d = (d + sonar.ping_cm())/i;
   }
-}
-
-// scoop operation
-void Grasp(){
-  positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
-  if(positionServo5 >= endAngleServo5){
-    Serial.println("test1");
-    positionServo5 = endAngleServo5;
-    robotModeIndex = 3; //CHANGE THIS OPERATION IDK WHAT OPERATION NUMBER IS NEXT
-  }
-  ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
-  Serial.printf("%f\n", positionServo5);
-  Serial.println("test if servo 5 is written 2 close");
-}
-
-// pickup system operation
-void Pickup() {
-  switch (Pickupflag) {
-      case 1:
-        positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
-        positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
-        if ((positionServo3 >= endAngleServo3) && (positionServo4 <= startAngleServo4)){
-          positionServo3 = endAngleServo3;
-          positionServo4 = startAngleServo4;
-          Pickupflag = 2;
-        }
-        ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
-        ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
-        break;
-        
-      case 2:
-        positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
-        positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
-        if ((positionServo3 <= startAngleServo3) && (positionServo4 >= endAngleServo4)) {
-          positionServo3 = startAngleServo3;
-          positionServo4 = endAngleServo4;
-          Pickupflag = 1;
-          robotModeIndex = 4; 
-        }
-        ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
-        ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
-        break;
-    }
-}
-
-
-// function to return a dutyCyle that should be written using pwm to the servos
-int degreesToDutyCycle(int deg) {
-  const long MinimumDC = 400; // Duty Cycle for 0 degrees
-  const long MaximumDC = 2100; // Duty Cycle for 180 degrees
-  int dutyCycle = map(deg, 0, 180, MinimumDC, MaximumDC); // map from degrees to duty cycle
-  return dutyCycle;
+  return d;
 }
 
 // Set colour of Smart LED depending on robot mode (and update brightness)
