@@ -57,8 +57,9 @@ struct Encoder {
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
 #define SMART_LED_COUNT     1                                                  // number of smart led's 
-#define TRIG_PIN            6                                                  // GIPO pin for the ultrasonic sensor (trig)
-#define ECHO_PIN            7                                                  // GIPO pin for the ultrasonic sensor (echo)
+#define TRIG_PIN            13                                                 // GIPO pin for the ultrasonic sensor (trig)
+#define ECHO_PIN            14                                                 // GIPO pin for the ultrasonic sensor (echo)
+#define MAX_DISTANCE        30                                                  
 #define PI                  3.1415926535897932384626433832795                  // const. value for PI
 
 // Constants
@@ -82,6 +83,8 @@ boolean returning = false;                                                     /
 unsigned int turnNo = 0;                                                       // indicates number of turns that have been completed
 unsigned char leftDriveSpeed = 255 - cLeftAdjust;                              // motor drive speed (0-255)
 unsigned char rightDriveSpeed = 255 - cRightAdjust;                            // motor drive speed (0-255)
+unsigned char leftTurnSpeed = 200 - cLeftAdjust;
+unsigned char rightTurnSpeed = 200 - cRightAdjust;
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
 unsigned int homeIndex = 0;                                                    // state index for return drive
@@ -213,7 +216,7 @@ void loop() {
               break;
 
             case 1: // turn right
-              Bot.Right("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Right("D1", leftTurnSpeed, rightTurnSpeed);
               RightEncoder.getEncoderRawCount();
               if(RightEncoder.lRawEncoderCount >= cCountsRev * ((PI/2)*7.4/cRevDistance)){
                 RightEncoder.clearEncoder();
@@ -233,7 +236,7 @@ void loop() {
               break;
 
             case 3: // turn left
-              Bot.Left("D1", leftDriveSpeed, rightDriveSpeed);
+              Bot.Left("D1", leftTurnSpeed, rightTurnSpeed);
               RightEncoder.getEncoderRawCount();
               if(RightEncoder.lRawEncoderCount <= cCountsRev * ((PI/2)*3.7*-1/cRevDistance)){
                 RightEncoder.clearEncoder();
@@ -283,6 +286,7 @@ void loop() {
             break;
 
           case 2: // reverse back to base
+
             break; 
 
           case 3: // reverse precisely onto container  
