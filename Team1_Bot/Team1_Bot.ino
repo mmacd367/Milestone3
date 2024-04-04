@@ -69,7 +69,7 @@ struct Encoder {
 #define PWMCHAN_SERVO2       5
 #define PWMCHAN_SERVO3       6
 #define PWMCHAN_SERVO4       7
-#define PWMCHAN_SERVO5       
+#define PWMCHAN_SERVO5       8
 
 // Port pin constants (other)
 #define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
@@ -100,7 +100,7 @@ unsigned int robotModeIndex = 0;                                               /
 unsigned int driveIndex = 0;                                                   // state index for drive
 int Operationflag = 1;
 int Pickupflag = 1;                                                            // flag to switch between cases
-int SortFlag = 1;
+int Sortflag = 1;
 int goodflag = 1;
 
 // Variables (servos)
@@ -131,6 +131,7 @@ unsigned long timerCountReturn = 0;                                            /
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
+unsigned long elapsedTime;
 unsigned long interval = 20000;                                                // Time interval between servo position updates (in microseconds)
 
 
@@ -218,6 +219,7 @@ void loop() {
   currentMicros = micros();                                                   // get current time in microseconds
   if((currentMicros - previousMicros) >= 1000){                               // enter if 1 millisecond has passed since last entry
     previousMicros = currentMicros;                                           // record current time in microseconds 
+    elapsedTime = currentMicros - previousMicros;
 
     // Mode pushbutton debounce and toggle
     if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
@@ -272,20 +274,23 @@ void loop() {
         break;
 
       case 2: // operate pick up
-        if(currentMicros >= interval){
+        if(elapsedTime >= interval){
           Pickup();
-          previousMillis = currentMillis;
+          previousMicros = currentMicros;
         }
         break;
 
-      case 3: // navigate to home base
-        robotModeIndex = 0;
+      case 3: // Sort
+        if(elapsedTime >= interval){
+          Sorting();
+          previousMicros = currentMicros;
         break;
 
       case 4: // open back hatch
 
         break;
     }
+
     // Update brightness of heartbeat display on SmartLED
     displayTime++;                                                            // count milliseconds
     if (displayTime > cDisplayUpdate) {                                       // when display update period has passed
@@ -297,6 +302,7 @@ void loop() {
       SmartLEDs.setBrightness(LEDBrightnessLevels[LEDBrightnessIndex]);       // set brightness of heartbeat LED
       Indicator();                                                            // update LED
     }
+  }
   }
 }
 
@@ -354,6 +360,103 @@ void Pickup() {
 
     }
 }
+
+void Sorting(){
+  if (goodflag){
+      switch (Sortflag) {
+      case 1:
+        positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
+        if(positionServo1 >= endAngleServo1){
+          Serial.println("test1");
+          positionServo1 = endAngleServo1;
+          Sortflag = 2;
+        }
+        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
+        Serial.printf("%f\n", positionServo1);
+        Serial.println("test if servo 1 is written 2 open");
+        break;
+        
+      case 2:
+        positionServo2 += ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
+        if (positionServo2 >= endAngleServo2){
+          positionServo2 = endAngleServo2;
+          Sortflag = 3;
+        }
+        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
+        break;
+        
+      case 3:
+        positionServo2 -= ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
+        if (positionServo2 <= startAngleServo2) {
+          positionServo2 = startAngleServo2;
+          Sortflag = 4;
+        }
+        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
+        break;
+      
+      case 4:
+        positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1 ;
+        if(positionServo1 <= startAngleServo1){
+          Serial.println("test2");
+          positionServo1 = startAngleServo1;
+          Sortflag = 1;
+          Operationflag = 1;
+        }
+        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
+        Serial.printf("%f\n", positionServo1);
+        Serial.println("test if servo 1 is written 2 close ");
+        break;
+      }
+    }
+
+    else{
+      switch (Sortflag) {
+      case 1:
+        positionServo1 += ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1;
+        if(positionServo1 >= endAngleServo1){
+          Serial.println("test1");
+          positionServo1 = endAngleServo1;
+          Sortflag = 2;
+        }
+        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
+        Serial.printf("%f\n", positionServo1);
+        Serial.println("test if servo 1 is written 2 open");
+        break;
+        
+      case 2:
+        positionServo2 += ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
+        if (positionServo2 >= endAngleServo2){
+          positionServo2 = endAngleServo2;
+          Sortflag = 3;
+        }
+        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
+        break;
+        
+      case 3:
+        positionServo2 -= ((endAngleServo2 - startAngleServo2) / (1000.0 / interval)) * speedFactorServo2;
+        if (positionServo2 <= startAngleServo2) {
+          positionServo2 = startAngleServo2;
+          Sortflag = 4;
+        }
+        ledcWrite(PWMCHAN_SERVO2, degreesToDutyCycle(positionServo2));
+        break;
+      
+      case 4:
+        positionServo1 -= ((endAngleServo1 - startAngleServo1) / (1000.0 / interval)) * speedFactorServo1 ;
+        if(positionServo1 <= startAngleServo1){
+          Serial.println("test2");
+          positionServo1 = startAngleServo1;
+          Sortflag = 1;
+          Operationflag = 1; 
+        }
+        ledcWrite(PWMCHAN_SERVO1, degreesToDutyCycle(positionServo1));
+        Serial.printf("%f\n", positionServo1);
+        Serial.println("test if servo 1 is written 2 close ");
+        break;
+      }  
+  }
+}
+
 // function to return a dutyCyle that should be written using pwm to the servos
 int degreesToDutyCycle(int deg) {
   const long MinimumDC = 400; // Duty Cycle for 0 degrees
