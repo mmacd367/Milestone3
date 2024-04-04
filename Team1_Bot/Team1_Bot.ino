@@ -88,7 +88,6 @@ unsigned char rightTurnSpeed = 200 - cRightAdjust;
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
 unsigned int homeIndex = 0;                                                    // state index for return drive
-unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
@@ -131,6 +130,8 @@ Encoders RightEncoder = Encoders();                                            /
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
 
 void setup() {
+  Serial.begin(115200);
+
    // Set up motors and encoders
    Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B);  // set up motors as Drive 1
    LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning );      // set up left encoder
@@ -144,7 +145,6 @@ void setup() {
 
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
-   modePBDebounce = 0;                                                         // reset debounce timer count
 }
 
 void loop() {
@@ -156,32 +156,7 @@ void loop() {
 
     // Mode pushbutton debounce and toggle
     if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
-    
-      // Start debounce
-      if (modePBDebounce <= 25) {                                               // 25 millisecond debounce time
-        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
-        if (modePBDebounce > 25) {                                              // if held for at least 25 mS
-          modePBDebounce = 1000;                                                // change debounce timer count to 1 second
-        }
-      }
-
-      if (modePBDebounce >= 1000) {                                             // maintain 1 second timer count until release
-        modePBDebounce = 1000;
-      }
-    }
-
-    else {                                                                      // pushbutton GPIO goes HIGH (nominal release)
-      if(modePBDebounce <= 26) {                                                // if release occurs within debounce interval
-        modePBDebounce = 0;                                                     // reset debounce timer count
-      }
-      else {
-        modePBDebounce = modePBDebounce + 1;                                    // increment debounce timer count
-        if(modePBDebounce >= 1025) {                                            // if pushbutton was released for 25 mS
-          modePBDebounce = 0;                                                   // reset debounce timer count
-          robotModeIndex++;                                                     // move robot to next mode
-          robotModeIndex = robotModeIndex & 7;                                  // keep mode index between 0 and 7
-        }
-      }
+      robotModeIndex = 1;
     }
 
     // check if drive motors should be powered REMOVE?? NECESSARY???
@@ -274,9 +249,16 @@ void loop() {
 
       case 3: // navigate to home base
         Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+        /*
         int currentDist = getDistance();
         if(currentDist == 0){
           Bot.Stop("D1");
+          robotModeIndex = 0;
+        }
+        */
+        RightEncoder.getEncoderRawCount();
+        if(RightEncoder.lRawEncoderCount >= cCountsRev * (cDriveDistance + cInitialDrive)/cRevDistance){
+          RightEncoder.clearEncoder();
           robotModeIndex = 0;
         }
         break;
