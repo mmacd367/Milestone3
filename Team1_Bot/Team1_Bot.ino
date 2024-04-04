@@ -35,6 +35,7 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <MSE2202_Lib.h>
+#include <NewPing.h>
 
 
 // Encoder structure
@@ -57,7 +58,7 @@ struct Encoder {
 #define MOTOR_ENABLE_SWITCH 3                                                  // DIP Switch S1-1 pulls Digital pin D3 to ground when on, connected to pin 15 GPIO3 (J3)
 #define SMART_LED           21                                                 // when DIP Switch S1-4 is on, Smart LED is connected to pin 23 GPIO21 (J21)
 #define SMART_LED_COUNT     1                                                  // number of smart led's 
-#define TRIG_PIN            13                                                 // GIPO pin for the ultrasonic sensor (trig)
+#define TRIGGER_PIN            13                                                 // GIPO pin for the ultrasonic sensor (trig)
 #define ECHO_PIN            14                                                 // GIPO pin for the ultrasonic sensor (echo)
 #define MAX_DISTANCE        30                                                  
 #define PI                  3.1415926535897932384626433832795                  // const. value for PI
@@ -68,7 +69,6 @@ const int cPWMRes = 4;                                                         /
 const int cMinPWM = 150;                                                       // PWM value for minimum speed that turns motor
 const int cMaxPWM = pow(2, cPWMRes) - 1;                                       // PWM value for maximum speed
 const int cCountsRev = 1096;                                                   // encoder pulses per motor revolution
-const float cTurnRadius = 5;                                                 // bot's turning radius
 const float cRevDistance = 25.761;                                             // distance traversed by the bot for 1 wheel revolution
 const float cDriveDistance = 200;                                                     // distance for the bot to travel forward/backward
 const float cInitialDrive = 25;                                                 // distance for the bot to initially travel out
@@ -89,12 +89,9 @@ unsigned int robotModeIndex = 0;                                               /
 unsigned int driveIndex = 0;                                                   // state index for drive
 unsigned int homeIndex = 0;                                                    // state index for return drive
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
-unsigned long timerCountReturn = 0;                                            // return time counter
 unsigned long displayTime;                                                     // heartbeat LED update timer
 unsigned long previousMicros;                                                  // last microsecond count
 unsigned long currentMicros;                                                   // current microsecond count
-float us_Duration;                                                             // duration of the ultrasonic signal
-float cm_Distance;                                                             // conversion from the ultrasonic signal to distance in cm
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -121,21 +118,23 @@ unsigned int  modeIndicator[6] = {                                             /
    SmartLEDs.Color(255,0,255)                                                  // magenta - empty case
 };                                                                            
 
-// Motor, encoder, and IR objects (classes defined in MSE2202_Lib)
+// functions 
+int getDistance();
+void Indicator();
+
+// Motor and encoder objects (classes defined in MSE2202_Lib)
 Motion Bot = Motion();                                                         // Instance of Motion for motor control
 Encoders LeftEncoder = Encoders();                                             // Instance of Encoders for left encoder data
 Encoders RightEncoder = Encoders();                                            // Instance of Encoders for right encoder data
- 
+
+// ultrasonic object
+NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
+
 void setup() {
    // Set up motors and encoders
    Bot.driveBegin("D1", LEFT_MOTOR_A, LEFT_MOTOR_B, RIGHT_MOTOR_A, RIGHT_MOTOR_B);  // set up motors as Drive 1
-
    LeftEncoder.Begin(ENCODER_LEFT_A, ENCODER_LEFT_B, &Bot.iLeftMotorRunning );      // set up left encoder
    RightEncoder.Begin(ENCODER_RIGHT_A, ENCODER_RIGHT_B, &Bot.iRightMotorRunning );  // set up right encoder
-
-   // Set up ultrasonic sensor
-   pinMode(TRIG_PIN, OUTPUT);
-   pinMode(ECHO_PIN, INPUT);
 
    // Set up SmartLED
    SmartLEDs.begin();                                                          // initialize smart LEDs object (REQUIRED)
@@ -146,7 +145,6 @@ void setup() {
    pinMode(MOTOR_ENABLE_SWITCH, INPUT_PULLUP);                                 // set up motor enable switch with internal pullup
    pinMode(MODE_BUTTON, INPUT_PULLUP);                                         // Set up mode pushbutton
    modePBDebounce = 0;                                                         // reset debounce timer count
-
 }
 
 void loop() {
@@ -260,7 +258,7 @@ void loop() {
                 Serial.println("Forward");
                 driveIndex = 3;
                 if(turnNo == 5){
-                  robotModeIndex = 0;
+                  robotModeIndex = 3;
                 }
               }
               break; 
@@ -270,34 +268,17 @@ void loop() {
 
       case 2: // operate pick up
         // code for pick up (not yet completed)
-        Serial.println("pick up");
-        driveIndex = 5;                                                          // switch to turn after the sweep
-        robotModeIndex = 1;                                                      // switch back to the drive mode
+        Serial.println("pick up");                                                    
+        robotModeIndex = 3;                                                      // switch back to the drive mode
         break;
 
       case 3: // navigate to home base
-        switch(homeIndex){                                                       // control structure for driving back to base
-          case 0: // go y back to base
-          
-            break;
-
-          case 1: //turn backward 90 degrees (direction depends on case 0)
-           
-            break;
-
-          case 2: // reverse back to base
-
-            break; 
-
-          case 3: // reverse precisely onto container  
-            break;
+        Bot.Reverse("D1", leftDriveSpeed, rightDriveSpeed);
+        int currentDist = getDistance();
+        if(currentDist == 0){
+          Bot.Stop("D1");
+          robotModeIndex = 0;
         }
-        break;
-
-      case 4: // open back hatch
-        //code for hatch (not yet complete)
-        Serial.println("Dumping contents");
-        robotModeIndex = 0;
         break;
     }
 
@@ -318,6 +299,15 @@ void loop() {
 // sorting system operation
 void Sorting() {
   // code to operate sorting and sorting servos (not yet completed)
+}
+
+int getDistance() {
+  int d = 0;
+  for(int i = 1; i <= 8; i++)
+  {
+    d = (d + sonar.ping_cm())/i;
+  }
+  return d;
 }
 
 // Set colour of Smart LED depending on robot mode (and update brightness)
