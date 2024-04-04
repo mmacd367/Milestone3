@@ -59,15 +59,17 @@ struct Encoder {
 #define ENCODER_RIGHT_B     12                                                 // right encoder B signal is connected to pin 20 GPIO12 (J12)
 
 // Port pin constants (servo motors)
-#define SERVO1                                                                 // 
-#define SERVO2                                                                 //
-#define SERVO3              42                                                 // Right pickup arm servo
-#define SERVO4              44                                                 // Left pickup arm servo
-#define SERVO5              43                                                 // Scoop servo
+#define SERVO1              38                                                 // 
+#define SERVO2              39                                                 //
+#define SERVO3              40                                                 // Right pickup arm servo
+#define SERVO4              41                                                 // Left pickup arm servo
+#define SERVO5              42                                                 // Scoop servo
 #define SERVO6                                                                 //
-#define PWMCHAN_SERVO3       0
-#define PWMCHAN_SERVO4       1
-#define PWMCHAN_SERVO5       2
+#define PWMCHAN_SERVO1       4 
+#define PWMCHAN_SERVO2       5
+#define PWMCHAN_SERVO3       6
+#define PWMCHAN_SERVO4       7
+#define PWMCHAN_SERVO5       
 
 // Port pin constants (other)
 #define MODE_BUTTON          0                                                 // GPIO0  pin 27 for Push Button 1
@@ -96,21 +98,32 @@ unsigned char leftDriveSpeed;                                                  /
 unsigned char rightDriveSpeed;                                                 // motor drive speed (0-255)
 unsigned int robotModeIndex = 0;                                               // state index for run mode
 unsigned int driveIndex = 0;                                                   // state index for drive
+int Operationflag = 1;
 int Pickupflag = 1;                                                            // flag to switch between cases
+int SortFlag = 1;
+int goodflag = 1;
 
 // Variables (servos)
-int startAngleServo3 = 0;                                                      // Initial angle for servo 3
-int endAngleServo3 = 90;                                                       // Final angle for servo 3
-int startAngleServo4 = 0;                                                      // Initial angle for servo 4
-int endAngleServo4 = 90;                                                       // Final angle for servo 4
-int startAngleServo5 = 0;                                                      // Initial angle for servo 5
-int endAngleServo5 = 180;                                                      // Final angle for servo 5
-float positionServo3 = startAngleServo3;                                       // Current position of servo 3
-float positionServo4 = startAngleServo4;                                       // Current position of servo 4
-float positionServo5 = endAngleServo5;                                         // Current position of servo 5
-int speedFactorServo3 = 1;                                                     // Speed factor for servo 3
-int speedFactorServo4 = 1;                                                     // Speed factor for servo 4
-int speedFactorServo5 = 1;                                                     // Speed factor for servo 5
+int startAngleServo1 = 0;  // Initial angle for servo 1
+int endAngleServo1 = 90;   // Final angle for servo 2
+int startAngleServo2 = 0; // Initial angle for servo 1
+int endAngleServo2 = 90;  // Final angle for servo 2
+int startAngleServo3 = 0;  // Initial angle for servo 3
+int endAngleServo3 = 90;   // Final angle for servo 3
+int startAngleServo4 = 0; // Initial angle for servo 4
+int endAngleServo4 = 90;  // Final angle for servo 4
+int startAngleServo5 = 0; // Initial angle for servo 5
+int endAngleServo5 = 180; // Final angle for servo 5
+float positionServo1 = startAngleServo1; // Current position of servo 1
+float positionServo2 = startAngleServo2; // Current position of servo 2
+float positionServo3 = startAngleServo3; // Current position of servo 3
+float positionServo4 = startAngleServo4; // Current position of servo 4
+float positionServo5 = endAngleServo5; // Current position of servo 5
+int speedFactorServo1 = 1; // Speed factor for servo 1
+int speedFactorServo2 = 5; // Speed factor for servo 2
+int speedFactorServo3 = 1; // Speed factor for servo 3
+int speedFactorServo4 = 1; // Speed factor for servo 4
+int speedFactorServo5 = 1; // Speed factor for servo 5
 
 // Variables (timers/debounce)
 unsigned int  modePBDebounce;                                                  // pushbutton debounce timer count
@@ -153,6 +166,7 @@ Encoders RightEncoder = Encoders();                                            /
  
 // function declarations
 int degreesToDutyCycle(int deg);
+void Pickup();
 void Sorting();
 void Indicator();
 
@@ -176,20 +190,26 @@ void setup() {
    modePBDebounce = 0;
 
    // set up the servo pins as outputs
-   pinMode(SERVO3, OUTPUT);
-   pinMode(SERVO4, OUTPUT);
-   pinMode(SERVO5, OUTPUT);
+  pinMode(SERVO1, OUTPUT);
+  pinMode(SERVO2, OUTPUT);
+  pinMode(SERVO3, OUTPUT);
+  pinMode(SERVO4, OUTPUT);
+  pinMode(SERVO5, OUTPUT);
 
-   // set up LED channels for each servo
-   ledcSetup(PWMCHAN_SERVO3, 40, 14); // pwm channel, frequency and bit resolution
-   ledcSetup(PWMCHAN_SERVO4, 40, 14); // pwm channel, frequency and bit resolution
-   ledcSetup(PWMCHAN_SERVO5, 40, 14); // pwm channel, frequency and bit resolution
+  // set up LED channels for each servo
+  ledcSetup(PWMCHAN_SERVO1, 40, 14); // pwm channel, frequency and bit resolution
+  ledcSetup(PWMCHAN_SERVO2, 40, 14); // pwm channel, frequency and bit resolution
+  ledcSetup(PWMCHAN_SERVO3, 40, 14); // pwm channel, frequency and bit resolution
+  ledcSetup(PWMCHAN_SERVO4, 40, 14); // pwm channel, frequency and bit resolution
+  ledcSetup(PWMCHAN_SERVO5, 40, 14); // pwm channel, frequency and bit resolution
 
-   // atach the LED channels for each servo to different GPIO pins
-   ledcAttachPin(SERVO3, PWMCHAN_SERVO3);
-   ledcAttachPin(SERVO4, PWMCHAN_SERVO4);
-   ledcAttachPin(SERVO5, PWMCHAN_SERVO5);                                                      // reset debounce timer count
 
+  // atach the LED channels for each servo to different GPIO pins
+  ledcAttachPin(SERVO1, PWMCHAN_SERVO1);
+  ledcAttachPin(SERVO2, PWMCHAN_SERVO2);
+  ledcAttachPin(SERVO3, PWMCHAN_SERVO3);
+  ledcAttachPin(SERVO4, PWMCHAN_SERVO4);
+  ledcAttachPin(SERVO5, PWMCHAN_SERVO5);
 }
 
 void loop() {
@@ -198,14 +218,6 @@ void loop() {
   currentMicros = micros();                                                   // get current time in microseconds
   if((currentMicros - previousMicros) >= 1000){                               // enter if 1 millisecond has passed since last entry
     previousMicros = currentMicros;                                           // record current time in microseconds 
-
-    // track 100 second (100000 milliseconds)
-    timerCountReturn++;                                                       // increment the return timer counter
-    if(timerCountReturn > cReturnTime){                                       // if the returm timer counter has counter the correct time
-      timerCountReturn = 0;                                                   // reset the value of the timer counter
-      timeUpReturn = true;                                                    // set the flag for the timer to true (time is up)
-    }
-
 
     // Mode pushbutton debounce and toggle
     if (!digitalRead(MODE_BUTTON)) {                                            // if pushbutton GPIO goes LOW (nominal push)
@@ -260,50 +272,9 @@ void loop() {
         break;
 
       case 2: // operate pick up
-        if (currentMicros >= interval){
-          switch (Pickupflag) {
-            case 1: //close the scoop
-              positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5 ;
-              if(positionServo5 >= endAngleServo5){
-                positionServo5 = endAngleServo5;
-                Pickupflag = 2;
-              }
-              ledcWrite(2, degreesToDutyCycle(positionServo5));
-              break;
-        
-            case 2: // lift the arms
-              positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
-              positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
-              if ((positionServo3 >= endAngleServo3) && (positionServo4 <= startAngleServo4)){
-                positionServo3 = endAngleServo3;
-                positionServo4 = startAngleServo4;
-                Pickupflag = 3;
-              }
-              ledcWrite(0, degreesToDutyCycle(positionServo3));
-              ledcWrite(1, degreesToDutyCycle(positionServo4));
-              break;
-        
-            case 3: // bring the arms back down
-              positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
-              positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
-              if ((positionServo3 <= startAngleServo3) && (positionServo4 >= endAngleServo4)) {
-                positionServo3 = startAngleServo3;
-                positionServo4 = endAngleServo4;
-                Pickupflag = 4;
-              }
-              ledcWrite(0, degreesToDutyCycle(positionServo3));
-              ledcWrite(1, degreesToDutyCycle(positionServo4));
-              break;
-      
-            case 4: // re-open the scoop
-              positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
-              if(positionServo5 <= startAngleServo5){
-                positionServo5 = startAngleServo5;
-                robotModeIndex = 3;
-              }
-              ledcWrite(2, degreesToDutyCycle(positionServo5));
-              break;
-          }
+        if(currentMicros >= interval){
+          Pickup();
+          previousMillis = currentMillis;
         }
         break;
 
@@ -329,9 +300,59 @@ void loop() {
   }
 }
 
-// sorting system operation
-void Sorting() {
-  // code to operate sorting and sorting servos
+// pickup system operation
+void Pickup() {
+  switch (Pickupflag) {
+      case 1:
+        positionServo5 -= (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5;
+        if(positionServo5 <= startAngleServo5){
+          Serial.println("test1");
+          positionServo5 = startAngleServo5;
+          Pickupflag = 2;
+        }
+        ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
+        Serial.printf("%f\n", positionServo5);
+        Serial.println("test if servo 5 is written 2 open");
+        break;
+        
+      case 2:
+        positionServo3 += (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+        positionServo4 -= (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+        if ((positionServo3 >= endAngleServo3) && (positionServo4 <= startAngleServo4)){
+          positionServo3 = endAngleServo3;
+          positionServo4 = startAngleServo4;
+          Pickupflag = 3;
+        }
+        ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
+        ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
+        break;
+        
+      case 3:
+        positionServo3 -= (endAngleServo3 - startAngleServo3) / (1000.0 / interval) / speedFactorServo3;
+        positionServo4 += (endAngleServo4 - startAngleServo4) / (1000.0 / interval) / speedFactorServo4;
+        if ((positionServo3 <= startAngleServo3) && (positionServo4 >= endAngleServo4)) {
+          positionServo3 = startAngleServo3;
+          positionServo4 = endAngleServo4;
+          Pickupflag = 4;
+        }
+        ledcWrite(PWMCHAN_SERVO3, degreesToDutyCycle(positionServo3));
+        ledcWrite(PWMCHAN_SERVO4, degreesToDutyCycle(positionServo4));
+        break;
+      
+      case 4:
+        positionServo5 += (endAngleServo5 - startAngleServo5) / (1000.0 / interval) / speedFactorServo5 ;
+        if(positionServo5 >= endAngleServo5){
+          Serial.println("test2");
+          positionServo5 = endAngleServo5;
+          Pickupflag = 1;
+          Operationflag = 2; // next operation
+        }
+        ledcWrite(PWMCHAN_SERVO5, degreesToDutyCycle(positionServo5));
+        Serial.printf("%f\n", positionServo5);
+        Serial.println("test if servo 5 is written 2 close ");
+        break;
+
+    }
 }
 // function to return a dutyCyle that should be written using pwm to the servos
 int degreesToDutyCycle(int deg) {
